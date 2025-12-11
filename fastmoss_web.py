@@ -140,8 +140,8 @@ class FastMossScraper:
 # 4. TAMPILAN WEB (STREAMLIT)
 # ==========================================
 
-st.set_page_config(page_title="FastMoss Scraper", layout="wide")
-st.title("🕵️ FastMoss Product Scraper")
+st.set_page_config(page_title="Aqwam Lab - Tiktokshop Project", layout="wide")
+st.title("🕵️ Tiktokshop Trending Product")
 
 # --- SIDEBAR: KONFIGURASI ---
 with st.sidebar:
@@ -308,4 +308,5 @@ if start_btn:
         )
         
     else:
+
         st.warning("Tidak ada data ditemukan.")
