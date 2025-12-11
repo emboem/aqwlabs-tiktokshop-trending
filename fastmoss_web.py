@@ -31,30 +31,14 @@ except ImportError:
 # 2. HELPER: PEMBERSIH ANGKA
 # ==========================================
 def clean_currency_to_float(value):
-    """
-    Mengubah string harga/angka 'kotor' menjadi float murni.
-    Contoh: 'Rp 14.489' -> 14489.0
-    Contoh: '15.500' -> 15500.0
-    """
     if value is None:
         return 0.0
-    
-    # Jika sudah angka (int/float), kembalikan langsung
     if isinstance(value, (int, float)):
         return float(value)
-        
-    # Ubah ke string
     str_val = str(value)
-    
-    # Hapus "Rp", "%", spasi
     str_val = re.sub(r'[Rp\s%]', '', str_val)
-    
-    # Hapus titik (pemisah ribuan Indonesia), biarkan koma (desimal) jika ada
-    # Tapi hati-hati, kadang API formatnya US (koma ribuan). 
-    # Kita asumsikan format Indonesia (titik = ribuan)
     str_val = str_val.replace('.', '') 
-    str_val = str_val.replace(',', '.') # Ubah koma jadi titik desimal
-    
+    str_val = str_val.replace(',', '.')
     try:
         return float(str_val)
     except ValueError:
@@ -115,14 +99,14 @@ class FastMossScraper:
             product_data = {
                 # --- DATA DISPLAY (TEXT) ---
                 "Judul Produk": item.get("title"),
-                "Harga Real": price_raw, # Tampilkan aslinya di tabel
+                "Harga Real": price_raw, 
                 "Kategori": cat_string,
                 "Toko": shop_name,
                 "Terjual (Periode Ini)": item.get("sold_count_show"),
                 "Omzet (Periode Ini)": item.get("sale_amount_show"),
                 "Total Terjual (Seumur Hidup)": item.get("total_sold_count_show"),
                 "Total Omzet (Seumur Hidup)": item.get("total_sale_amount_show"),
-                "Link": item.get("detail_url"),
+                "Link": item.get("detail_url"), # URL Asli
                 "Growth Rate": f"{growth_val * 100:.1f}%",
                 
                 # --- DATA NUMERIK (UNTUK CHART) ---
@@ -130,7 +114,7 @@ class FastMossScraper:
                 "num_omzet_periode": clean_currency_to_float(item.get("sale_amount", 0)),
                 "num_terjual_total": clean_currency_to_float(item.get("total_sold_count", 0)),
                 "num_omzet_total": clean_currency_to_float(item.get("total_sale_amount", 0)),
-                "num_growth": growth_val * 100, # Jadikan persen (skala 1-100)
+                "num_growth": growth_val * 100,
                 "num_harga": price_val
             }
             parsed_data.append(product_data)
@@ -140,8 +124,9 @@ class FastMossScraper:
 # 4. TAMPILAN WEB (STREAMLIT)
 # ==========================================
 
-st.set_page_config(page_title="Aqwam Lab - Tiktokshop Project", layout="wide")
+st.set_page_config(page_title="AQWAM LAB TOOLS", layout="wide")
 st.title("🕵️ Tiktokshop Trending Product")
+st.subheader("Mengambil Data Produk Terlaris di Tiktokshop dari FastMoss")
 
 # --- SIDEBAR: KONFIGURASI ---
 with st.sidebar:
@@ -193,10 +178,7 @@ with st.sidebar:
 
 # --- FUNGSI PEMBUAT CHART WARNA ORANYE ---
 def plot_orange_bar(df, x_col, title, format_text='.2s'):
-    # Warna Oranye Khas (Mirip Shopee/Fastmoss)
     ORANGE_COLOR = '#ff6b18' 
-    
-    # Sort data
     chart_data = df.sort_values(by=x_col, ascending=True).tail(15)
     
     fig = px.bar(
@@ -207,20 +189,16 @@ def plot_orange_bar(df, x_col, title, format_text='.2s'):
         title=title,
         text_auto=format_text,
         hover_data=["Judul Produk", "Toko", "Harga Real"],
-        # KUNCI WARNA: Menggunakan single color (discrete)
         color_discrete_sequence=[ORANGE_COLOR] 
     )
     
-    # Kostumisasi Layout agar bersih
     fig.update_layout(
-        yaxis={'categoryorder':'total ascending', 'title': ''}, # Hapus judul axis Y
-        xaxis={'title': ''}, # Hapus judul axis X
+        yaxis={'categoryorder':'total ascending', 'title': ''},
+        xaxis={'title': ''},
         showlegend=False,
         height=500
     )
-    # Menampilkan Label di luar batang jika terlalu pendek
     fig.update_traces(textposition='outside') 
-    
     return fig
 
 # --- MAIN AREA: HASIL ---
@@ -246,8 +224,6 @@ if start_btn:
     
     if all_data:
         df = pd.DataFrame(all_data)
-        
-        # Nama Pendek
         df['Nama Pendek'] = [f"Produk ke-{i+1}" for i in range(len(df))]
         
         # 1. Metrik Utama
@@ -283,21 +259,31 @@ if start_btn:
             st.markdown("#### Growth Rate & Harga")
             col_e, col_f = st.columns(2)
             with col_e:
-                # Growth rate pakai format text '.2f' agar muncul desimal
                 st.plotly_chart(plot_orange_bar(df, "num_growth", "Growth Rate (%)", format_text='.3s'), use_container_width=True)
             with col_f:
                 st.plotly_chart(plot_orange_bar(df, "num_harga", "Harga Real Produk (Rp)"), use_container_width=True)
 
         st.divider()
 
-        # 3. Data Tabel
+        # 3. Data Tabel dengan LINK KLIK
         st.subheader("📋 Data Lengkap")
         cols_to_drop = ["num_terjual_periode", "num_omzet_periode", "num_terjual_total", "num_omzet_total", "num_growth", "num_harga"]
         display_df = df.drop(columns=cols_to_drop)
         cols = ['Nama Pendek'] + [c for c in display_df.columns if c != 'Nama Pendek']
         display_df = display_df[cols]
         
-        st.dataframe(display_df, use_container_width=True)
+        # --- KONFIGURASI LINK DI SINI ---
+        st.dataframe(
+            display_df,
+            column_config={
+                "Link": st.column_config.LinkColumn(
+                    "Link Produk",         # Nama Header Kolom
+                    help="Klik untuk membuka produk di tab baru",
+                    display_text="🔗 Buka Link" # Teks pengganti URL yang panjang
+                )
+            },
+            use_container_width=True
+        )
         
         csv = display_df.to_csv(index=False).encode('utf-8')
         st.download_button(
@@ -308,5 +294,4 @@ if start_btn:
         )
         
     else:
-
         st.warning("Tidak ada data ditemukan.")
