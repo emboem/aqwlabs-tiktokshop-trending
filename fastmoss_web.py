@@ -45,71 +45,80 @@ def clean_currency_to_float(value):
         return 0.0
 
 # ==========================================
-# 3. KELAS SCRAPER
+# 3. KELAS SCRAPER (PRODUK & TOKO)
 # ==========================================
 class FastMossScraper:
     def __init__(self):
-        self.base_url = "https://www.fastmoss.com/api/goods/saleRank"
         self.headers = HEADERS_CONFIG
 
-    def get_best_sellers(self, page=1, pagesize=10, time_config=None, category_config=None):
+    # --- FUNGSI API PRODUK ---
+    def get_best_products(self, page=1, pagesize=10, time_config=None, category_config=None):
+        url = "https://www.fastmoss.com/api/goods/saleRank"
         params = {
-            "page": page,
-            "pagesize": pagesize,
-            "order": "1,2",
-            "region": "ID",
-            "_time": int(time.time()),
-            "date_type": time_config['type'],
-            "date_value": time_config['value']
+            "page": page, "pagesize": pagesize, "order": "1,2", "region": "ID",
+            "_time": int(time.time()), "date_type": time_config['type'], "date_value": time_config['value']
         }
-
         if category_config:
             if category_config.get('l1'): params["l1_cid"] = category_config['l1']
             if category_config.get('l2'): params["l2_cid"] = category_config['l2']
             if category_config.get('l3'): params["l3_cid"] = category_config['l3']
 
         try:
-            response = requests.get(self.base_url, headers=self.headers, params=params, timeout=15)
+            response = requests.get(url, headers=self.headers, params=params, timeout=15)
             if response.status_code == 200:
-                data_json = response.json()
-                if data_json.get("code") == 200:
-                    return data_json.get("data", {}).get("rank_list", [])
+                data = response.json()
+                return data.get("data", {}).get("rank_list", []) if data.get("code") == 200 else []
             return []
-        except Exception as e:
-            return []
+        except: return []
 
+    # --- FUNGSI API TOKO (BARU) ---
+    def get_best_shops(self, page=1, pagesize=10, time_config=None, category_config=None):
+        url = "https://www.fastmoss.com/api/shop/v3/shopList"
+        params = {
+            "page": page, "pagesize": pagesize, "order": "1,2", "region": "ID",
+            "_time": int(time.time()), "date_type": time_config['type'], "date_value": time_config['value']
+        }
+        # Parameter kategori toko sama dengan produk
+        if category_config:
+            if category_config.get('l1'): params["l1_cid"] = category_config['l1']
+            if category_config.get('l2'): params["l2_cid"] = category_config['l2']
+            if category_config.get('l3'): params["l3_cid"] = category_config['l3']
+
+        try:
+            response = requests.get(url, headers=self.headers, params=params, timeout=15)
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("data", {}).get("list", []) if data.get("code") == 200 else []
+            return []
+        except: return []
+
+    # --- PARSER DATA PRODUK ---
     def parse_products(self, products_list):
         parsed_data = []
         for item in products_list:
-            # 1. Amankan Shop Info
             shop_info = item.get("shop_info", {})
             shop_name = shop_info.get("name", "-") if isinstance(shop_info, dict) else "-"
-
-            # 2. Bersihkan Angka Penting
+            
             price_raw = item.get('real_price', 0)
             growth_raw = item.get('sold_count_inc_rate', 0)
-            
             price_val = clean_currency_to_float(price_raw)
             growth_val = clean_currency_to_float(growth_raw)
 
-            # Kategori
             cat_list = item.get("all_category_name", [])
             cat_string = " > ".join(cat_list) if cat_list else "-"
 
             product_data = {
-                # --- DATA DISPLAY (TEXT) ---
-                "Judul Produk": item.get("title"),
+                "Judul": item.get("title"),
                 "Harga Real": price_raw, 
                 "Kategori": cat_string,
                 "Toko": shop_name,
-                "Terjual (Periode Ini)": item.get("sold_count_show"),
-                "Omzet (Periode Ini)": item.get("sale_amount_show"),
-                "Total Terjual (Seumur Hidup)": item.get("total_sold_count_show"),
-                "Total Omzet (Seumur Hidup)": item.get("total_sale_amount_show"),
-                "Link": item.get("detail_url"), # URL Asli
+                "Terjual (Periode)": item.get("sold_count_show"),
+                "Omzet (Periode)": item.get("sale_amount_show"),
+                "Terjual (Total)": item.get("total_sold_count_show"),
+                "Omzet (Total)": item.get("total_sale_amount_show"),
+                "Link": item.get("detail_url"),
                 "Growth Rate": f"{growth_val * 100:.1f}%",
                 
-                # --- DATA NUMERIK (UNTUK CHART) ---
                 "num_terjual_periode": clean_currency_to_float(item.get("sold_count", 0)),
                 "num_omzet_periode": clean_currency_to_float(item.get("sale_amount", 0)),
                 "num_terjual_total": clean_currency_to_float(item.get("total_sold_count", 0)),
@@ -120,19 +129,50 @@ class FastMossScraper:
             parsed_data.append(product_data)
         return parsed_data
 
+    # --- PARSER DATA TOKO (BARU) ---
+    def parse_shops(self, shops_list):
+        parsed_data = []
+        for item in shops_list:
+            # Mengambil ID Toko untuk Link FastMoss (Karena link TikTok butuh username)
+            shop_id = item.get("id") or item.get("seller_id")
+            link_url = f"https://www.fastmoss.com/id/shop-detail/{shop_id}" if shop_id else "#"
+
+            growth_sold = clean_currency_to_float(item.get('sold_count_inc_rate', 0))
+            
+            shop_data = {
+                "Nama Toko": item.get("name"),
+                "Rating": item.get("rating"),
+                "Jml Produk": item.get("product_count"),
+                "Terjual (Periode)": item.get("inc_sold_count_show"),
+                "Omzet (Periode)": item.get("inc_sale_amount_show"),
+                "Growth (Penjualan)": f"{growth_sold * 100:.1f}%",
+                "Link": link_url,
+
+                # Numerik untuk Chart
+                "num_terjual": clean_currency_to_float(item.get("inc_sold_count", 0)),
+                "num_omzet": clean_currency_to_float(item.get("inc_sale_amount", 0)),
+                "num_produk": clean_currency_to_float(item.get("product_count", 0)),
+                "num_rating": clean_currency_to_float(item.get("rating", 0))
+            }
+            parsed_data.append(shop_data)
+        return parsed_data
+
 # ==========================================
 # 4. TAMPILAN WEB (STREAMLIT)
 # ==========================================
 
-st.set_page_config(page_title="AQWAM LAB TOOLS", layout="wide")
-st.title("🕵️ Tiktokshop Trending Product")
-st.subheader("Mengambil Data Produk Terlaris di Tiktokshop dari FastMoss")
+st.set_page_config(page_title="FastMoss Scraper", layout="wide")
+st.title("🕵️ FastMoss Ultimate Scraper")
 
 # --- SIDEBAR: KONFIGURASI ---
 with st.sidebar:
-    st.header("⚙️ Konfigurasi Filter")
+    st.header("⚙️ Panel Kontrol")
 
-    # Filter Waktu
+    # 1. PILIH MODE (BARU)
+    mode = st.radio("🎯 Pilih Mode Scraping", ["📦 Produk Terlaris", "🏪 Toko Terlaris"])
+    st.divider()
+
+    # 2. Filter Waktu
     st.subheader("1. Filter Waktu")
     time_option = st.selectbox("Pilih Periode", ["Harian", "Mingguan", "Bulanan"])
     date_val = ""
@@ -150,7 +190,7 @@ with st.sidebar:
         st.info("Format: YYYY-MM (Contoh: 2025-11)")
         date_val = st.text_input("Masukkan Bulan", value=datetime.now().strftime("%Y-%m"))
 
-    # Filter Kategori
+    # 3. Filter Kategori
     st.subheader("2. Filter Kategori")
     l1_opts = {item['label']: item for item in CATEGORY_TREE}
     selected_l1_label = st.selectbox("Kategori Utama (L1)", ["Semua"] + list(l1_opts.keys()))
@@ -171,37 +211,30 @@ with st.sidebar:
                     if selected_l3_label != "Semua":
                         l3_val = l3_opts[selected_l3_label]['value']
 
-    # Jumlah Halaman
+    # 4. Jumlah Halaman
     st.subheader("3. Opsi Scraping")
     max_pages = st.number_input("Jumlah Halaman (max 10)", min_value=1, max_value=10, value=1)
-    start_btn = st.button("🚀 Mulai Scraping", type="primary")
+    
+    label_tombol = f"🚀 Mulai Scraping {mode.split()[1]}" # Jadi "Scraping Produk" atau "Scraping Toko"
+    start_btn = st.button(label_tombol, type="primary")
 
-# --- FUNGSI PEMBUAT CHART WARNA ORANYE ---
-def plot_orange_bar(df, x_col, title, format_text='.2s'):
+# --- HELPER CHART ---
+def plot_orange_bar(df, x_col, y_col, title, format_text='.2s'):
     ORANGE_COLOR = '#ff6b18' 
     chart_data = df.sort_values(by=x_col, ascending=True).tail(15)
     
     fig = px.bar(
-        chart_data,
-        x=x_col,
-        y="Nama Pendek",
-        orientation='h',
-        title=title,
-        text_auto=format_text,
-        hover_data=["Judul Produk", "Toko", "Harga Real"],
-        color_discrete_sequence=[ORANGE_COLOR] 
+        chart_data, x=x_col, y=y_col, orientation='h', title=title,
+        text_auto=format_text, color_discrete_sequence=[ORANGE_COLOR]
     )
-    
     fig.update_layout(
         yaxis={'categoryorder':'total ascending', 'title': ''},
-        xaxis={'title': ''},
-        showlegend=False,
-        height=500
+        xaxis={'title': ''}, showlegend=False, height=500
     )
     fig.update_traces(textposition='outside') 
     return fig
 
-# --- MAIN AREA: HASIL ---
+# --- LOGIKA EKSEKUSI ---
 if start_btn:
     scraper = FastMossScraper()
     time_config = {"type": date_type, "value": date_val}
@@ -213,10 +246,19 @@ if start_btn:
     
     for i in range(1, max_pages + 1):
         status_text.text(f"Mengambil halaman {i} dari {max_pages}...")
-        raw_data = scraper.get_best_sellers(page=i, time_config=time_config, category_config=cat_config)
-        if raw_data:
-            clean_data = scraper.parse_products(raw_data)
-            all_data.extend(clean_data)
+        
+        # --- CABANG LOGIKA BERDASARKAN MODE ---
+        if mode == "📦 Produk Terlaris":
+            raw_data = scraper.get_best_products(page=i, time_config=time_config, category_config=cat_config)
+            if raw_data:
+                clean_data = scraper.parse_products(raw_data)
+                all_data.extend(clean_data)
+        else: # Toko Terlaris
+            raw_data = scraper.get_best_shops(page=i, time_config=time_config, category_config=cat_config)
+            if raw_data:
+                clean_data = scraper.parse_shops(raw_data)
+                all_data.extend(clean_data)
+        
         progress_bar.progress(i / max_pages)
         time.sleep(1)
         
@@ -224,74 +266,93 @@ if start_btn:
     
     if all_data:
         df = pd.DataFrame(all_data)
-        df['Nama Pendek'] = [f"Produk ke-{i+1}" for i in range(len(df))]
         
-        # 1. Metrik Utama
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Total Produk", len(df))
-        col2.metric("Total Toko", df['Toko'].nunique())
-        col3.metric("Avg Harga", f"Rp {df['num_harga'].mean():,.0f}")
-        col4.metric("Top Omzet", f"Rp {df['num_omzet_periode'].max():,.0f}")
-        
-        st.divider()
+        # --- TAMPILAN MODE: PRODUK ---
+        if mode == "📦 Produk Terlaris":
+            df['Nama Pendek'] = [f"Produk ke-{i+1}" for i in range(len(df))]
+            
+            # Metrik
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Total Produk", len(df))
+            c2.metric("Total Toko", df['Toko'].nunique())
+            c3.metric("Avg Harga", f"Rp {df['num_harga'].mean():,.0f}")
+            c4.metric("Top Omzet", f"Rp {df['num_omzet_periode'].max():,.0f}")
+            st.divider()
 
-        # 2. Visualisasi Diagram (Tabs)
-        st.subheader("📊 Analisis Data (Top 15 Produk)")
-        tab1, tab2, tab3 = st.tabs(["📅 Periode Ini", "♾️ Seumur Hidup", "📈 Growth & Harga"])
-        
-        with tab1:
-            st.markdown("#### Performa Periode Ini")
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.plotly_chart(plot_orange_bar(df, "num_terjual_periode", "Total Terjual (Periode Ini)"), use_container_width=True)
-            with col_b:
-                st.plotly_chart(plot_orange_bar(df, "num_omzet_periode", "Omzet (Periode Ini)"), use_container_width=True)
-                
-        with tab2:
-            st.markdown("#### Performa Seumur Hidup (Total)")
-            col_c, col_d = st.columns(2)
-            with col_c:
-                st.plotly_chart(plot_orange_bar(df, "num_terjual_total", "Total Terjual (Seumur Hidup)"), use_container_width=True)
-            with col_d:
-                st.plotly_chart(plot_orange_bar(df, "num_omzet_total", "Total Omzet (Seumur Hidup)"), use_container_width=True)
+            # Chart
+            st.subheader("📊 Analisis Produk")
+            t1, t2, t3 = st.tabs(["📅 Periode Ini", "♾️ Seumur Hidup", "📈 Growth & Harga"])
+            with t1:
+                col_a, col_b = st.columns(2)
+                with col_a: st.plotly_chart(plot_orange_bar(df, "num_terjual_periode", "Nama Pendek", "Terjual (Periode)"), use_container_width=True)
+                with col_b: st.plotly_chart(plot_orange_bar(df, "num_omzet_periode", "Nama Pendek", "Omzet (Periode)"), use_container_width=True)
+            with t2:
+                col_c, col_d = st.columns(2)
+                with col_c: st.plotly_chart(plot_orange_bar(df, "num_terjual_total", "Nama Pendek", "Terjual (Total)"), use_container_width=True)
+                with col_d: st.plotly_chart(plot_orange_bar(df, "num_omzet_total", "Nama Pendek", "Omzet (Total)"), use_container_width=True)
+            with t3:
+                col_e, col_f = st.columns(2)
+                with col_e: st.plotly_chart(plot_orange_bar(df, "num_growth", "Nama Pendek", "Growth Rate (%)", '.3s'), use_container_width=True)
+                with col_f: st.plotly_chart(plot_orange_bar(df, "num_harga", "Nama Pendek", "Harga (Rp)"), use_container_width=True)
+            
+            # Tabel
+            st.divider()
+            st.subheader("📋 Data Produk Lengkap")
+            cols_drop = [c for c in df.columns if c.startswith('num_')]
+            display_df = df.drop(columns=cols_drop)
+            display_df = display_df[['Nama Pendek'] + [c for c in display_df.columns if c != 'Nama Pendek']]
+            
+            st.dataframe(
+                display_df,
+                column_config={"Link": st.column_config.LinkColumn("Link Produk", display_text="🔗 Buka Link")},
+                use_container_width=True
+            )
 
-        with tab3:
-            st.markdown("#### Growth Rate & Harga")
-            col_e, col_f = st.columns(2)
-            with col_e:
-                st.plotly_chart(plot_orange_bar(df, "num_growth", "Growth Rate (%)", format_text='.3s'), use_container_width=True)
-            with col_f:
-                st.plotly_chart(plot_orange_bar(df, "num_harga", "Harga Real Produk (Rp)"), use_container_width=True)
+        # --- TAMPILAN MODE: TOKO ---
+        else:
+            df['Nama Pendek'] = [f"Toko ke-{i+1}" for i in range(len(df))]
+            
+            # Metrik
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Total Toko", len(df))
+            c2.metric("Avg Rating", f"{df['num_rating'].mean():.1f} ⭐")
+            c3.metric("Total Produk", f"{df['num_produk'].sum():,.0f}")
+            c4.metric("Top Omzet", f"Rp {df['num_omzet'].max():,.0f}")
+            st.divider()
 
-        st.divider()
+            # Chart
+            st.subheader("📊 Analisis Toko")
+            t1, t2 = st.tabs(["💰 Omzet & Penjualan", "📦 Produk & Rating"])
+            with t1:
+                col_a, col_b = st.columns(2)
+                with col_a: st.plotly_chart(plot_orange_bar(df, "num_omzet", "Nama Pendek", "Omzet Toko (Periode Ini)"), use_container_width=True)
+                with col_b: st.plotly_chart(plot_orange_bar(df, "num_terjual", "Nama Pendek", "Penjualan Toko (Periode Ini)"), use_container_width=True)
+            with t2:
+                col_c, col_d = st.columns(2)
+                with col_c: st.plotly_chart(plot_orange_bar(df, "num_produk", "Nama Pendek", "Jumlah Produk Aktif"), use_container_width=True)
+                with col_d: st.plotly_chart(plot_orange_bar(df, "num_rating", "Nama Pendek", "Rating Toko", '.1f'), use_container_width=True)
+            
+            # Tabel
+            st.divider()
+            st.subheader("📋 Data Toko Lengkap")
+            cols_drop = [c for c in df.columns if c.startswith('num_')]
+            display_df = df.drop(columns=cols_drop)
+            display_df = display_df[['Nama Pendek'] + [c for c in display_df.columns if c != 'Nama Pendek']]
+            
+            st.dataframe(
+                display_df,
+                column_config={"Link": st.column_config.LinkColumn("Detail Toko", display_text="🔗 Cek FastMoss")},
+                use_container_width=True
+            )
 
-        # 3. Data Tabel dengan LINK KLIK
-        st.subheader("📋 Data Lengkap")
-        cols_to_drop = ["num_terjual_periode", "num_omzet_periode", "num_terjual_total", "num_omzet_total", "num_growth", "num_harga"]
-        display_df = df.drop(columns=cols_to_drop)
-        cols = ['Nama Pendek'] + [c for c in display_df.columns if c != 'Nama Pendek']
-        display_df = display_df[cols]
-        
-        # --- KONFIGURASI LINK DI SINI ---
-        st.dataframe(
-            display_df,
-            column_config={
-                "Link": st.column_config.LinkColumn(
-                    "Link Produk",         # Nama Header Kolom
-                    help="Klik untuk membuka produk di tab baru",
-                    display_text="🔗 Buka Link" # Teks pengganti URL yang panjang
-                )
-            },
-            use_container_width=True
-        )
-        
+        # Download Button (Umum)
         csv = display_df.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="📥 Download Excel/CSV",
             data=csv,
-            file_name=f"fastmoss_{date_val}.csv",
+            file_name=f"fastmoss_{mode.split()[1]}_{date_val}.csv",
             mime="text/csv",
         )
         
     else:
-        st.warning("Tidak ada data ditemukan.")
+        st.warning(f"Tidak ada data {mode} ditemukan. Coba cek filter atau cookie.")
