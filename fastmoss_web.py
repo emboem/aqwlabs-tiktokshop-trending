@@ -235,8 +235,9 @@ class FastMossScraper:
 # 4. TAMPILAN WEB (STREAMLIT)
 # ==========================================
 
-st.set_page_config(page_title="FastMoss Scraper", layout="wide")
-st.title("🕵️ FastMoss Ultimate Scraper")
+st.set_page_config(page_title="Aqwam Lab Tool | Tiktokshop", layout="wide")
+st.title("🕵️ Tiktokshop Trending Product")
+st.caption("Scraper data produk terlaris dan toko terlaris dari FastMoss.com")
 
 # --- SIDEBAR ---
 with st.sidebar:
@@ -425,3 +426,4 @@ if start_btn:
             st.download_button(label="📥 Download Excel/CSV", data=csv, file_name=f"fastmoss_{mode.split()[0]}_{date_val}.csv", mime="text/csv")
     else:
         st.warning(f"Tidak ada data ditemukan.")
+
