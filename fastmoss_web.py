@@ -85,6 +85,32 @@ def create_mini_chart(dates, counts):
     )
     return fig
 
+def get_month_list(year, range_option):
+    """Generate list bulan YYYY-MM berdasarkan opsi user"""
+    months = []
+    y = int(year)
+    
+    if range_option == "Full Year (12 Bulan)":
+        r = range(1, 13)
+    elif range_option == "Semester 1 (Jan - Jun)":
+        r = range(1, 7)
+    elif range_option == "Semester 2 (Jul - Des)":
+        r = range(7, 13)
+    elif range_option == "Q1 (Jan - Mar)":
+        r = range(1, 4)
+    elif range_option == "Q2 (Apr - Jun)":
+        r = range(4, 7)
+    elif range_option == "Q3 (Jul - Sep)":
+        r = range(7, 10)
+    elif range_option == "Q4 (Okt - Des)":
+        r = range(10, 13)
+    else:
+        r = []
+
+    for m in r:
+        months.append(f"{y}-{m:02d}")
+    return months
+
 # ==========================================
 # 3. KELAS SCRAPER
 # ==========================================
@@ -242,33 +268,58 @@ st.caption("Scraper data produk terlaris dan toko terlaris dari FastMoss.com")
 # --- SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Panel Kontrol")
-    mode = st.radio("🎯 Pilih Mode", ["🔍 Cari Produk (Keyword)", "📦 Produk Terlaris", "🏪 Toko Terlaris"])
+    mode = st.radio("🎯 Pilih Mode", [
+        "🔍 Cari Produk (Keyword)", 
+        "📦 Produk Terlaris", 
+        "🏪 Toko Terlaris"
+        "📈 Analisis Tren (Multi-Bulan)" # <--- Menu Baru
+        ])
     st.divider()
 
     time_config = {"type": "1", "value": ""}
     keyword = ""
+    multi_month_target = "Produk" # Default
+    selected_months = []
 
-    if mode != "🔍 Cari Produk (Keyword)":
+    # === LOGIKA UI BARU ===
+    if mode == "📈 Analisis Tren (Multi-Bulan)":
+        st.subheader("1. Konfigurasi Tren")
+        multi_month_target = st.selectbox("Analisis Apa?", ["Produk", "Toko"])
+        
+        col_y, col_r = st.columns(2)
+        with col_y:
+            year_val = st.number_input("Tahun", min_value=2023, max_value=2030, value=datetime.now().year)
+        with col_r:
+            range_opt = st.selectbox("Rentang", [
+                "Full Year (12 Bulan)", 
+                "Semester 1 (Jan - Jun)", "Semester 2 (Jul - Des)",
+                "Q1 (Jan - Mar)", "Q2 (Apr - Jun)", "Q3 (Jul - Sep)", "Q4 (Okt - Des)"
+            ])
+        
+        # Generate list bulan untuk diproses nanti
+        selected_months = get_month_list(year_val, range_opt)
+        st.caption(f"Akan memproses: {len(selected_months)} bulan ({selected_months[0]} s/d {selected_months[-1]})")
+
+    elif mode == "🔍 Cari Produk (Keyword)":
+        st.subheader("1. Kata Kunci")
+        keyword = st.text_input("Masukkan Nama Produk", placeholder="Contoh: Buku Anak...")
+    
+    else: # Mode Terlaris Biasa (Harian/Mingguan/Bulanan)
         st.subheader("1. Filter Waktu")
         time_option = st.selectbox("Pilih Periode", ["Harian", "Mingguan", "Bulanan"])
-        date_type = "1"
+        # ... (Logika date picker lama Anda tetap di sini) ...
+        # (Copy paste logika if time_option == "Harian" dst dari kode lama Anda ke sini)
         if time_option == "Harian":
             date_type = "1"
             d = st.date_input("Pilih Tanggal", datetime.now())
             date_val = d.strftime("%Y-%m-%d")
         elif time_option == "Mingguan":
             date_type = "2"
-            st.info("Format: YYYY-WW (Contoh: 2025-49)")
             date_val = st.text_input("Masukkan Minggu", value=datetime.now().strftime("%Y-%W"))
         else: 
             date_type = "3"
-            st.info("Format: YYYY-MM (Contoh: 2025-11)")
             date_val = st.text_input("Masukkan Bulan", value=datetime.now().strftime("%Y-%m"))
         time_config = {"type": date_type, "value": date_val}
-    else:
-        st.subheader("1. Kata Kunci")
-        keyword = st.text_input("Masukkan Nama Produk", placeholder="Contoh: Buku Anak, Hijab...")
-        if not keyword: st.warning("Mohon masukkan kata kunci.")
 
     st.subheader("2. Filter Kategori")
     l1_opts = {item['label']: item for item in CATEGORY_TREE}
@@ -311,20 +362,134 @@ if start_btn:
     progress_bar = st.progress(0)
     status_text = st.empty()
     
-    for i in range(1, max_pages + 1):
-        status_text.text(f"Mengambil halaman {i} dari {max_pages}...")
-        if mode == "📦 Produk Terlaris":
-            raw = scraper.get_best_products(page=i, time_config=time_config, category_config=cat_config)
-            if raw: all_data.extend(scraper.parse_best_products(raw))
-        elif mode == "🏪 Toko Terlaris":
-            raw = scraper.get_best_shops(page=i, time_config=time_config, category_config=cat_config)
-            if raw: all_data.extend(scraper.parse_shops(raw))
-        elif mode == "🔍 Cari Produk (Keyword)":
-            raw = scraper.search_products(keyword=keyword, page=i, category_config=cat_config)
-            if raw: all_data.extend(scraper.parse_search_results(raw))
-        progress_bar.progress(i / max_pages)
-        time.sleep(1)
-    status_text.text("Selesai!")
+    # === BARU: LOGIKA MULTI BULAN ===
+    if mode == "📈 Analisis Tren (Multi-Bulan)":
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        total_steps = len(selected_months) * max_pages
+        current_step = 0
+
+        # Loop per Bulan
+        for idx_m, month_str in enumerate(selected_months):
+            # Loop per Halaman
+            for page in range(1, max_pages + 1):
+                status_text.markdown(f"⏳ Sedang mengambil data **{month_str}** (Halaman {page})...")
+                
+                # Setup config waktu bulanan
+                curr_time_config = {"type": "3", "value": month_str}
+                
+                try:
+                    if multi_month_target == "Produk":
+                        raw = scraper.get_best_products(page=page, time_config=curr_time_config, category_config=cat_config)
+                        parsed = scraper.parse_best_products(raw)
+                    else: # Toko
+                        raw = scraper.get_best_shops(page=page, time_config=curr_time_config, category_config=cat_config)
+                        parsed = scraper.parse_shops(raw)
+                    
+                    # Tagging data dengan Bulan agar bisa dianalisis
+                    for p in parsed:
+                        p['Bulan'] = month_str 
+                    
+                    all_data.extend(parsed)
+                except Exception as e:
+                    st.error(f"Error pada {month_str}: {e}")
+
+                # Update Progress & Delay biar aman
+                current_step += 1
+                progress_bar.progress(current_step / total_steps)
+                time.sleep(1) # Sleep 1 detik per request agar tidak diblokir
+        
+        status_text.success("✅ Selesai mengambil data tren!")
+
+        if all_data:
+            df = pd.DataFrame(all_data)
+            
+            # --- DASHBOARD ANALISIS TREN ---
+            st.divider()
+            st.header(f"📊 Laporan Tren: {multi_month_target} ({selected_months[0]} s/d {selected_months[-1]})")
+            
+            # Tentukan kolom kunci (Produk=Judul, Toko=Nama Toko)
+            key_col = "Judul" if multi_month_target == "Produk" else "Nama Toko"
+            metric_col = "num_terjual_p" if multi_month_target == "Produk" else "num_terjual" # Gunakan terjual periode (bulanan)
+            omzet_col = "num_omzet_p" if multi_month_target == "Produk" else "num_omzet"
+
+            tab1, tab2, tab3 = st.tabs(["🏆 Juara Umum (Total)", "💎 Paling Konsisten", "📅 Breakdown Bulanan"])
+
+            # 1. JUARA UMUM (Total Penjualan selama periode)
+            with tab1:
+                st.subheader("Siapa yang paling laris secara total akumulasi?")
+                # Group by Nama, Sum Terjual & Omzet
+                df_total = df.groupby(key_col)[[metric_col, omzet_col]].sum().reset_index()
+                df_total = df_total.sort_values(metric_col, ascending=False).head(20)
+                
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.plotly_chart(plot_orange_bar(df_total, metric_col, key_col, "Top 20 Total Terjual"), use_container_width=True)
+                with c2:
+                    st.plotly_chart(plot_orange_bar(df_total, omzet_col, key_col, "Top 20 Total Omzet"), use_container_width=True)
+                
+                st.dataframe(df_total, use_container_width=True)
+
+            # 2. KONSISTENSI (Berapa bulan dia masuk ranking?)
+            with tab2:
+                st.subheader("Siapa yang paling 'tahan banting' (muncul tiap bulan)?")
+                # Hitung jumlah bulan unik kemunculan
+                df_persist = df.groupby(key_col)['Bulan'].nunique().reset_index()
+                df_persist.columns = [key_col, 'Frekuensi Bulan']
+                df_persist = df_persist.sort_values('Frekuensi Bulan', ascending=False).head(20)
+                
+                # Merge dengan rata-rata penjualan untuk konteks
+                df_avg = df.groupby(key_col)[metric_col].mean().reset_index()
+                df_persist = pd.merge(df_persist, df_avg, on=key_col)
+                
+                fig = px.scatter(df_persist, x=metric_col, y='Frekuensi Bulan', 
+                                 size=metric_col, color='Frekuensi Bulan', hover_name=key_col,
+                                 title="Matriks Konsistensi vs Rata-rata Penjualan",
+                                 labels={metric_col: "Rata-rata Penjualan/Bulan"},
+                                 color_continuous_scale='Oranges')
+                st.plotly_chart(fig, use_container_width=True)
+                st.info("Tips: Titik di kanan atas adalah produk yang 'Laris' DAN 'Stabil' setiap bulan.")
+                st.dataframe(df_persist, use_container_width=True)
+
+            # 3. BREAKDOWN BULANAN (Heatmap / Line Chart)
+            with tab3:
+                st.subheader("Tren Pergerakan Bulanan")
+                # Ambil Top 5 Juara Umum untuk dijadikan grafik garis
+                top_names = df_total[key_col].head(5).tolist()
+                df_trend = df[df[key_col].isin(top_names)].copy()
+                
+                # Pivot table agar rapi
+                pivot_trend = df_trend.pivot_table(index='Bulan', columns=key_col, values=metric_col, aggfunc='sum').fillna(0)
+                
+                fig_line = px.line(pivot_trend, markers=True, title="Pergerakan Penjualan Top 5 Market Leader")
+                st.plotly_chart(fig_line, use_container_width=True)
+
+                st.write("Data Mentah Per Bulan:")
+                st.dataframe(df[['Bulan', key_col, metric_col, omzet_col]].sort_values(['Bulan', metric_col], ascending=[True, False]), use_container_width=True)
+                
+            # Download Button
+            csv_tren = df.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Download Laporan Tren Lengkap", csv_tren, "laporan_tren.csv", "text/csv")
+        else:
+            st.warning("Data tidak ditemukan atau terjadi kesalahan koneksi.")
+
+    # === LOGIKA LAMA (SINGLE MODE) ===
+    else:
+        for i in range(1, max_pages + 1):
+            status_text.text(f"Mengambil halaman {i} dari {max_pages}...")
+            if mode == "📦 Produk Terlaris":
+                raw = scraper.get_best_products(page=i, time_config=time_config, category_config=cat_config)
+                if raw: all_data.extend(scraper.parse_best_products(raw))
+            elif mode == "🏪 Toko Terlaris":
+                raw = scraper.get_best_shops(page=i, time_config=time_config, category_config=cat_config)
+                if raw: all_data.extend(scraper.parse_shops(raw))
+            elif mode == "🔍 Cari Produk (Keyword)":
+                raw = scraper.search_products(keyword=keyword, page=i, category_config=cat_config)
+                if raw: all_data.extend(scraper.parse_search_results(raw))
+            progress_bar.progress(i / max_pages)
+            time.sleep(1)
+        status_text.text("Selesai!")
     
     if all_data:
         df = pd.DataFrame(all_data)
@@ -426,4 +591,3 @@ if start_btn:
             st.download_button(label="📥 Download Excel/CSV", data=csv, file_name=f"fastmoss_{mode.split()[0]}_{date_val}.csv", mime="text/csv")
     else:
         st.warning(f"Tidak ada data ditemukan.")
-
