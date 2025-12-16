@@ -491,104 +491,103 @@ if start_btn:
             time.sleep(1)
         status_text.text("Selesai!")
     
-    if all_data:
-        df = pd.DataFrame(all_data)
-        
-        # === TAMPILAN KHUSUS: PENCARIAN PRODUK (RICH LIST VIEW) ===
-        if mode == "🔍 Cari Produk (Keyword)":
-            st.divider()
-            st.subheader(f"🔎 Hasil Pencarian: '{keyword}'")
+        if all_data:
+            df = pd.DataFrame(all_data)
             
-            # Loop data untuk membuat Tampilan Kartu
-            for idx, row in df.iterrows():
-                with st.container(border=True):
-                    c1, c2, c3 = st.columns([2, 1.5, 2]) # Pembagian Kolom
-                    
-                    # Kolom 1: Info Produk
-                    with c1:
-                        st.markdown(f"**{row['Judul']}**")
-                        st.caption(f"Toko: {row['Toko']}")
-                        st.caption(f"Kategori: {row['Kategori']}" 
-                                   f"{' > ' + row['Kategori L2'] if row.get('Kategori L2') else ''}"
-                                   f"{' > ' + row['Kategori L3'] if row.get('Kategori L3') else ''}")
-                        st.link_button("🔗 Buka Link Produk", row['Link'])
-                    
-                    # Kolom 2: Metrik Angka
-                    with c2:
-                        st.markdown(f"💰 **Harga:** {row['Harga Display']}")
-                        st.markdown(f"📦 **Terjual (7 Hari):** {row['Terjual (7 Hari)']}")
-                        st.markdown(f"📦 **Terjual (Total):** {row['Terjual (Total)']}")
-                        st.markdown(f"💵 **Omzet (7 Hari):** {row['Omzet (7 Hari)']}")
-                        st.markdown(f"💵 **Omzet (Total):** {row['Omzet (Total)']}")
-                    
-                    # Kolom 3: Grafik Tren (Sparkline dengan Tanggal)
-                    with c3:
-                        # Membuat grafik mini jika data tersedia
-                        if row.get('trend_dates') and row.get('trend_counts'):
-                            fig_spark = create_mini_chart(row['trend_dates'], row['trend_counts'])
-                            st.plotly_chart(fig_spark, use_container_width=True, config={'displayModeBar': False})
-                        else:
-                            st.caption("Data tren tidak tersedia")
-
-            # Tombol Download (Tetap ada)
-            csv = df.to_csv(index=False).encode('utf-8')
-            name_file = keyword.replace(" ", "_")
-            st.download_button(label="📥 Download Data Lengkap (CSV)", data=csv, file_name=f"search_{name_file}.csv", mime="text/csv")
-
-        # === TAMPILAN LAMA: PRODUK TERLARIS & TOKO (TABEL BIASA) ===
-        elif mode != "🔍 Cari Produk (Keyword)":
-            # (Kode lama yang kamu suka tetap dipertahankan di sini)
-            if mode == "📦 Produk Terlaris":
-                df['Nama Pendek'] = [f"Produk ke-{i+1}" for i in range(len(df))]
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Total Produk", len(df))
-                c2.metric("Total Toko", df['Toko'].nunique())
-                c3.metric("Avg Harga", f"Rp {df['num_harga'].mean():,.0f}")
-                c4.metric("Top Omzet", f"Rp {df['num_omzet_p'].max():,.0f}")
+            # === TAMPILAN KHUSUS: PENCARIAN PRODUK (RICH LIST VIEW) ===
+            if mode == "🔍 Cari Produk (Keyword)":
                 st.divider()
-                st.subheader("📊 Analisis Produk")
-                t1, t2, t3 = st.tabs([f"📅 Periode Ini", "♾️ Seumur Hidup", "💰 Harga"])
-                with t1:
-                    col_a, col_b = st.columns(2)
-                    with col_a: st.plotly_chart(plot_orange_bar(df, "num_terjual_p", "Nama Pendek", f"Terjual"), use_container_width=True)
-                    with col_b: st.plotly_chart(plot_orange_bar(df, "num_omzet_p", "Nama Pendek", f"Omzet"), use_container_width=True)
-                with t2:
-                    col_c, col_d = st.columns(2)
-                    with col_c: st.plotly_chart(plot_orange_bar(df, "num_terjual_t", "Nama Pendek", "Terjual (Total)"), use_container_width=True)
-                    with col_d: st.plotly_chart(plot_orange_bar(df, "num_omzet_t", "Nama Pendek", "Omzet (Total)"), use_container_width=True)
-                with t3: st.plotly_chart(plot_orange_bar(df, "num_harga", "Nama Pendek", "Harga (Rp)"), use_container_width=True)
-                st.divider()
-                st.subheader("📋 Data Produk Lengkap")
-                cols_drop = [c for c in df.columns if c.startswith('num_')]
-                display_df = df.drop(columns=cols_drop)
-                st.dataframe(display_df, column_config={"Link": st.column_config.LinkColumn("Link Produk", display_text="🔗 Buka Link")}, use_container_width=True)
+                st.subheader(f"🔎 Hasil Pencarian: '{keyword}'")
+                
+                # Loop data untuk membuat Tampilan Kartu
+                for idx, row in df.iterrows():
+                    with st.container(border=True):
+                        c1, c2, c3 = st.columns([2, 1.5, 2]) # Pembagian Kolom
+                        
+                        # Kolom 1: Info Produk
+                        with c1:
+                            st.markdown(f"**{row['Judul']}**")
+                            st.caption(f"Toko: {row['Toko']}")
+                            st.caption(f"Kategori: {row['Kategori']}" 
+                                    f"{' > ' + row['Kategori L2'] if row.get('Kategori L2') else ''}"
+                                    f"{' > ' + row['Kategori L3'] if row.get('Kategori L3') else ''}")
+                            st.link_button("🔗 Buka Link Produk", row['Link'])
+                        
+                        # Kolom 2: Metrik Angka
+                        with c2:
+                            st.markdown(f"💰 **Harga:** {row['Harga Display']}")
+                            st.markdown(f"📦 **Terjual (7 Hari):** {row['Terjual (7 Hari)']}")
+                            st.markdown(f"📦 **Terjual (Total):** {row['Terjual (Total)']}")
+                            st.markdown(f"💵 **Omzet (7 Hari):** {row['Omzet (7 Hari)']}")
+                            st.markdown(f"💵 **Omzet (Total):** {row['Omzet (Total)']}")
+                        
+                        # Kolom 3: Grafik Tren (Sparkline dengan Tanggal)
+                        with c3:
+                            # Membuat grafik mini jika data tersedia
+                            if row.get('trend_dates') and row.get('trend_counts'):
+                                fig_spark = create_mini_chart(row['trend_dates'], row['trend_counts'])
+                                st.plotly_chart(fig_spark, use_container_width=True, config={'displayModeBar': False})
+                            else:
+                                st.caption("Data tren tidak tersedia")
 
-            else: # Toko
-                df['Nama Pendek'] = [f"Toko ke-{i+1}" for i in range(len(df))]
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Total Toko", len(df))
-                c2.metric("Avg Rating", f"{df['num_rating'].mean():.1f} ⭐")
-                c3.metric("Total Produk", f"{df['num_produk'].sum():,.0f}")
-                c4.metric("Top Omzet", f"Rp {df['num_omzet'].max():,.0f}")
-                st.divider()
-                st.subheader("📊 Analisis Toko")
-                t1, t2 = st.tabs(["💰 Omzet & Penjualan", "📦 Produk & Rating"])
-                with t1:
-                    col_a, col_b = st.columns(2)
-                    with col_a: st.plotly_chart(plot_orange_bar(df, "num_omzet", "Nama Pendek", "Omzet Toko"), use_container_width=True)
-                    with col_b: st.plotly_chart(plot_orange_bar(df, "num_terjual", "Nama Pendek", "Penjualan Toko"), use_container_width=True)
-                with t2:
-                    col_c, col_d = st.columns(2)
-                    with col_c: st.plotly_chart(plot_orange_bar(df, "num_produk", "Nama Pendek", "Jml Produk"), use_container_width=True)
-                    with col_d: st.plotly_chart(plot_orange_bar(df, "num_rating", "Nama Pendek", "Rating", '.1f'), use_container_width=True)
-                st.divider()
-                st.subheader("📋 Data Toko Lengkap")
-                cols_drop = [c for c in df.columns if c.startswith('num_')]
-                display_df = df.drop(columns=cols_drop)
-                st.dataframe(display_df, column_config={"Link": st.column_config.LinkColumn("Detail Toko", display_text="🔗 Cek FastMoss")}, use_container_width=True)
+                # Tombol Download (Tetap ada)
+                csv = df.to_csv(index=False).encode('utf-8')
+                name_file = keyword.replace(" ", "_")
+                st.download_button(label="📥 Download Data Lengkap (CSV)", data=csv, file_name=f"search_{name_file}.csv", mime="text/csv")
 
-            csv = display_df.to_csv(index=False).encode('utf-8')
-            st.download_button(label="📥 Download Excel/CSV", data=csv, file_name=f"fastmoss_{mode.split()[0]}_{date_val}.csv", mime="text/csv")
-    else:
-        st.warning(f"Tidak ada data ditemukan.")
+            # === TAMPILAN LAMA: PRODUK TERLARIS & TOKO (TABEL BIASA) ===
+            elif mode != "🔍 Cari Produk (Keyword)":
+                # (Kode lama yang kamu suka tetap dipertahankan di sini)
+                if mode == "📦 Produk Terlaris":
+                    df['Nama Pendek'] = [f"Produk ke-{i+1}" for i in range(len(df))]
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("Total Produk", len(df))
+                    c2.metric("Total Toko", df['Toko'].nunique())
+                    c3.metric("Avg Harga", f"Rp {df['num_harga'].mean():,.0f}")
+                    c4.metric("Top Omzet", f"Rp {df['num_omzet_p'].max():,.0f}")
+                    st.divider()
+                    st.subheader("📊 Analisis Produk")
+                    t1, t2, t3 = st.tabs([f"📅 Periode Ini", "♾️ Seumur Hidup", "💰 Harga"])
+                    with t1:
+                        col_a, col_b = st.columns(2)
+                        with col_a: st.plotly_chart(plot_orange_bar(df, "num_terjual_p", "Nama Pendek", f"Terjual"), use_container_width=True)
+                        with col_b: st.plotly_chart(plot_orange_bar(df, "num_omzet_p", "Nama Pendek", f"Omzet"), use_container_width=True)
+                    with t2:
+                        col_c, col_d = st.columns(2)
+                        with col_c: st.plotly_chart(plot_orange_bar(df, "num_terjual_t", "Nama Pendek", "Terjual (Total)"), use_container_width=True)
+                        with col_d: st.plotly_chart(plot_orange_bar(df, "num_omzet_t", "Nama Pendek", "Omzet (Total)"), use_container_width=True)
+                    with t3: st.plotly_chart(plot_orange_bar(df, "num_harga", "Nama Pendek", "Harga (Rp)"), use_container_width=True)
+                    st.divider()
+                    st.subheader("📋 Data Produk Lengkap")
+                    cols_drop = [c for c in df.columns if c.startswith('num_')]
+                    display_df = df.drop(columns=cols_drop)
+                    st.dataframe(display_df, column_config={"Link": st.column_config.LinkColumn("Link Produk", display_text="🔗 Buka Link")}, use_container_width=True)
 
+                else: # Toko
+                    df['Nama Pendek'] = [f"Toko ke-{i+1}" for i in range(len(df))]
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("Total Toko", len(df))
+                    c2.metric("Avg Rating", f"{df['num_rating'].mean():.1f} ⭐")
+                    c3.metric("Total Produk", f"{df['num_produk'].sum():,.0f}")
+                    c4.metric("Top Omzet", f"Rp {df['num_omzet'].max():,.0f}")
+                    st.divider()
+                    st.subheader("📊 Analisis Toko")
+                    t1, t2 = st.tabs(["💰 Omzet & Penjualan", "📦 Produk & Rating"])
+                    with t1:
+                        col_a, col_b = st.columns(2)
+                        with col_a: st.plotly_chart(plot_orange_bar(df, "num_omzet", "Nama Pendek", "Omzet Toko"), use_container_width=True)
+                        with col_b: st.plotly_chart(plot_orange_bar(df, "num_terjual", "Nama Pendek", "Penjualan Toko"), use_container_width=True)
+                    with t2:
+                        col_c, col_d = st.columns(2)
+                        with col_c: st.plotly_chart(plot_orange_bar(df, "num_produk", "Nama Pendek", "Jml Produk"), use_container_width=True)
+                        with col_d: st.plotly_chart(plot_orange_bar(df, "num_rating", "Nama Pendek", "Rating", '.1f'), use_container_width=True)
+                    st.divider()
+                    st.subheader("📋 Data Toko Lengkap")
+                    cols_drop = [c for c in df.columns if c.startswith('num_')]
+                    display_df = df.drop(columns=cols_drop)
+                    st.dataframe(display_df, column_config={"Link": st.column_config.LinkColumn("Detail Toko", display_text="🔗 Cek FastMoss")}, use_container_width=True)
+
+                csv = display_df.to_csv(index=False).encode('utf-8')
+                st.download_button(label="📥 Download Excel/CSV", data=csv, file_name=f"fastmoss_{mode.split()[0]}_{date_val}.csv", mime="text/csv")
+        else:
+            st.warning(f"Tidak ada data ditemukan.")
