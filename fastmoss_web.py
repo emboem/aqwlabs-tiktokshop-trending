@@ -369,8 +369,8 @@ if start_btn:
     # === BARU: LOGIKA MULTI BULAN (TAMPILAN KARTU/CATALOG STYLE) ===
     # === BARU: LOGIKA MULTI BULAN (TAMPILAN KARTU - FONT DIKECILKAN & NO NUMBERING) ===
     if mode == "📈 Analisis Tren (Multi-Bulan)":
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+        #progress_bar = st.progress(0)
+        #status_text = st.empty()
         
         total_steps = len(selected_months) * max_pages
         current_step = 0
@@ -636,3 +636,4 @@ if start_btn:
                 st.download_button(label="📥 Download Excel/CSV", data=csv, file_name=f"fastmoss_{mode.split()[0]}_{date_val}.csv", mime="text/csv")
         else:
             st.warning(f"Tidak ada data ditemukan.")
+
