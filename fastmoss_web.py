@@ -367,9 +367,10 @@ if start_btn:
     status_text = st.empty()
     
     # === BARU: LOGIKA MULTI BULAN (TAMPILAN KARTU/CATALOG STYLE) ===
+    # === BARU: LOGIKA MULTI BULAN (TAMPILAN KARTU - FONT DIKECILKAN & NO NUMBERING) ===
     if mode == "📈 Analisis Tren (Multi-Bulan)":
-        # progress_bar = st.progress(0)
-        # status_text = st.empty()
+        progress_bar = st.progress(0)
+        status_text = st.empty()
         
         total_steps = len(selected_months) * max_pages
         current_step = 0
@@ -410,15 +411,15 @@ if start_btn:
             metric_col = "num_terjual_p" if multi_month_target == "Produk" else "num_terjual"
             omzet_col = "num_omzet_p" if multi_month_target == "Produk" else "num_omzet"
             
-            # --- FUNGSI HELPER UNTUK MEMBUAT KARTU ---
-            def render_card(row, rank_num=None, label_metric="Total Terjual", label_omzet="Total Omzet"):
+            # --- FUNGSI HELPER UNTUK MEMBUAT KARTU (MODIFIKASI DI SINI) ---
+            def render_card(row, label_metric="Total Terjual", label_omzet="Total Omzet"):
                 with st.container(border=True):
                     c_info, c_stats = st.columns([1.5, 2])
                     
                     # Kolom Kiri: Info Produk/Toko
                     with c_info:
-                        rank_badge = f"#{rank_num} " if rank_num else ""
-                        st.markdown(f"#### {rank_badge}{row[key_col]}")
+                        # PERUBAHAN: Hapus logic rank_num (#1) dan ganti #### jadi ##### (lebih kecil)
+                        st.markdown(f"##### {row[key_col]}")
                         
                         if multi_month_target == "Produk":
                             st.caption(f"🏪 Toko: **{row.get('Toko', '-')}**")
@@ -459,23 +460,22 @@ if start_btn:
                 st.markdown("Daftar diurutkan berdasarkan **total penjualan** selama periode yang dipilih.")
                 
                 # Grouping & Sum Total
-                # Kita sertakan kolom info lain (Toko, Link, Harga) agar bisa ditampilkan di kartu
                 agg_cols = {metric_col: 'sum', omzet_col: 'sum', 'Bulan': 'count'}
                 group_cols = [key_col, 'Link']
                 if multi_month_target == "Produk":
                     group_cols.extend(['Toko', 'Kategori', 'Harga Display'])
                 else:
-                    group_cols.extend(['Rating', 'Jml Produk']) # Kolom tambahan untuk toko
+                    group_cols.extend(['Rating', 'Jml Produk']) 
 
                 # Lakukan Groupby
-                # Note: Menggunakan 'first' untuk kolom statis, 'sum' untuk metric
                 df_total = df.groupby(group_cols).agg(agg_cols).reset_index()
                 df_total = df_total.rename(columns={'Bulan': 'Frekuensi Bulan'})
                 df_total = df_total.sort_values(metric_col, ascending=False).reset_index(drop=True)
                 
                 # Render Kartu (Top 50 saja agar tidak berat)
                 for idx, row in df_total.head(50).iterrows():
-                    render_card(row, rank_num=idx+1, label_metric="Total Terjual (Akumulasi)", label_omzet="Total Omzet (Akumulasi)")
+                    # Tidak perlu kirim rank_num lagi
+                    render_card(row, label_metric="Total Terjual (Akumulasi)", label_omzet="Total Omzet (Akumulasi)")
                     
                 if len(df_total) > 50:
                     st.caption("⚠️ Menampilkan 50 data teratas. Download CSV untuk data lengkap.")
@@ -485,18 +485,14 @@ if start_btn:
                 st.subheader("💎 Tingkat Konsistensi")
                 st.markdown("Produk/Toko dikelompokkan berdasarkan **seberapa sering** mereka muncul di Top Rank setiap bulannya.")
                 
-                # Menggunakan df_total yang sudah dihitung frekuensi bulannya
-                # Ambil list frekuensi unik (misal: 12, 11, ... 1)
                 freqs = sorted(df_total['Frekuensi Bulan'].unique(), reverse=True)
                 
                 for freq in freqs:
                     subset = df_total[df_total['Frekuensi Bulan'] == freq]
-                    # Urutkan lagi subset berdasarkan penjualan tertinggi
                     subset = subset.sort_values(metric_col, ascending=False).head(5)
                     
                     with st.expander(f"🗓️ Muncul di {freq} Bulan ({len(subset)} Item Teratas)", expanded=(freq == freqs[0])):
                         for idx, row in subset.iterrows():
-                            # Kita tidak butuh rank global di sini, jadi rank_num=None
                             render_card(row, label_metric="Total Terjual", label_omzet="Total Omzet")
 
             # === TAB 3: BREAKDOWN BULANAN ===
@@ -504,15 +500,13 @@ if start_btn:
                 st.subheader("📅 Kilas Balik Per Bulan")
                 st.markdown("Produk/Toko dengan penjualan tertinggi di setiap bulannya.")
                 
-                # Loop setiap bulan yang tersedia
                 for bulan in sorted(selected_months):
-                    # Filter data bulan tersebut
                     df_bulan = df[df['Bulan'] == bulan].sort_values(metric_col, ascending=False).head(5)
                     
                     if not df_bulan.empty:
                         st.markdown(f"### 🗓️ Bulan: {bulan}")
                         for idx, row in df_bulan.iterrows():
-                            render_card(row, rank_num=idx+1, label_metric="Terjual (Bulan Ini)", label_omzet="Omzet (Bulan Ini)")
+                            render_card(row, label_metric="Terjual (Bulan Ini)", label_omzet="Omzet (Bulan Ini)")
                         st.divider()
                     else:
                         st.caption(f"Tidak ada data untuk bulan {bulan}")
