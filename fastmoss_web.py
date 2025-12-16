@@ -4,8 +4,7 @@ import pandas as pd
 import time
 import re
 from datetime import datetime
-import plotly.express as px
-import plotly.graph_objects as go
+from io import BytesIO # Diperlukan untuk memproses gambar byte
 
 # ==========================================
 # 1. KONFIGURASI & DATA
@@ -47,45 +46,47 @@ def remove_html_tags(text):
     return re.sub(clean, '', text)
 
 def get_month_list(year, range_option):
-    """Generate list bulan YYYY-MM berdasarkan opsi user"""
     months = []
     y = int(year)
-    
-    if range_option == "Full Year (12 Bulan)":
-        r = range(1, 13)
-    elif range_option == "Semester 1 (Jan - Jun)":
-        r = range(1, 7)
-    elif range_option == "Semester 2 (Jul - Des)":
-        r = range(7, 13)
-    elif range_option == "Q1 (Jan - Mar)":
-        r = range(1, 4)
-    elif range_option == "Q2 (Apr - Jun)":
-        r = range(4, 7)
-    elif range_option == "Q3 (Jul - Sep)":
-        r = range(7, 10)
-    elif range_option == "Q4 (Okt - Des)":
-        r = range(10, 13)
-    else:
-        r = []
-
-    for m in r:
-        months.append(f"{y}-{m:02d}")
+    if range_option == "Full Year (12 Bulan)": r = range(1, 13)
+    elif range_option == "Semester 1 (Jan - Jun)": r = range(1, 7)
+    elif range_option == "Semester 2 (Jul - Des)": r = range(7, 13)
+    elif range_option == "Q1 (Jan - Mar)": r = range(1, 4)
+    elif range_option == "Q2 (Apr - Jun)": r = range(4, 7)
+    elif range_option == "Q3 (Jul - Sep)": r = range(7, 10)
+    elif range_option == "Q4 (Okt - Des)": r = range(10, 13)
+    else: r = []
+    for m in r: months.append(f"{y}-{m:02d}")
     return months
 
 def format_date_str(date_str):
-    """Format tanggal dari YYYY-MM-DD HH:MM:SS ke format yang lebih enak dibaca"""
     if not date_str or date_str == "-": return "-"
     try:
-        # Coba parsing format lengkap
         dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
         return dt.strftime("%d %b %Y")
     except:
         try:
-            # Fallback jika hanya tanggal
             dt = datetime.strptime(date_str, "%Y-%m-%d")
             return dt.strftime("%d %b %Y")
-        except:
-            return date_str
+        except: return date_str
+
+# --- NEW: FUNGSI PROXY GAMBAR ---
+# Kita gunakan st.cache_data agar gambar yang sama tidak didownload ulang terus menerus saat interaksi
+@st.cache_data(show_spinner=False, ttl=3600) 
+def load_image_proxy(url):
+    """
+    Mendownload gambar via Python menggunakan Headers FastMoss 
+    untuk menghindari blokir/broken image.
+    """
+    if not url: return None
+    try:
+        # Request ke URL gambar dengan Headers 'sakti' kita
+        r = requests.get(url, headers=HEADERS_CONFIG, timeout=3)
+        if r.status_code == 200:
+            return BytesIO(r.content) # Ubah ke format bytes yang bisa dibaca Streamlit
+        return None
+    except:
+        return None
 
 # ==========================================
 # 3. KELAS SCRAPER
@@ -94,7 +95,6 @@ class FastMossScraper:
     def __init__(self):
         self.headers = HEADERS_CONFIG
 
-    # --- MODE 1: PRODUK TERLARIS ---
     def get_best_products(self, page=1, pagesize=10, time_config=None, category_config=None):
         url = "https://www.fastmoss.com/api/goods/saleRank"
         params = {
@@ -104,7 +104,6 @@ class FastMossScraper:
         self._add_category_params(params, category_config)
         return self._fetch_data(url, params, "rank_list")
 
-    # --- MODE 2: TOKO TERLARIS ---
     def get_best_shops(self, page=1, pagesize=10, time_config=None, category_config=None):
         url = "https://www.fastmoss.com/api/shop/v3/shopList"
         params = {
@@ -114,7 +113,6 @@ class FastMossScraper:
         self._add_category_params(params, category_config)
         return self._fetch_data(url, params, "list")
 
-    # --- MODE 3: PENCARIAN KEYWORD ---
     def search_products(self, keyword, page=1, pagesize=10, category_config=None):
         url = "https://www.fastmoss.com/api/goods/V2/search"
         params = {
@@ -124,7 +122,6 @@ class FastMossScraper:
         self._add_category_params(params, category_config)
         return self._fetch_data(url, params, "product_list")
 
-    # --- PRIVATE HELPERS ---
     def _add_category_params(self, params, category_config):
         if category_config:
             if category_config.get('l1'): params["l1_cid"] = category_config['l1']
@@ -141,7 +138,6 @@ class FastMossScraper:
             return []
         except: return []
 
-    # --- PARSERS (UPDATED WITH COVER & LAUNCH TIME) ---
     def parse_best_products(self, products_list):
         parsed_data = []
         for item in products_list:
@@ -149,8 +145,6 @@ class FastMossScraper:
             shop_name = shop_info.get("name", "-") if isinstance(shop_info, dict) else "-"
             cat_string = " > ".join(item.get("all_category_name", []) or [])
             price_raw = item.get('real_price', 0)
-            
-            # Extract Launch Time & Cover
             launch_time = item.get("launch_time") or item.get("ctime")
             cover_url = item.get("cover")
             
@@ -159,14 +153,14 @@ class FastMossScraper:
                 "Harga Display": price_raw, 
                 "Kategori": cat_string,
                 "Toko": shop_name,
-                "Cover": cover_url, # NEW
-                "Waktu Rilis": launch_time, # NEW
+                "Cover": cover_url,
+                "Waktu Rilis": launch_time,
                 "Link": item.get("detail_url"),
                 "num_terjual_p": clean_currency_to_float(item.get("sold_count", 0)),
                 "num_omzet_p": clean_currency_to_float(item.get("sale_amount", 0)),
                 "num_terjual_t": clean_currency_to_float(item.get("total_sold_count", 0)),
                 "num_omzet_t": clean_currency_to_float(item.get("total_sale_amount", 0)),
-                "num_rating": 0 # Placeholder for aggregation
+                "num_rating": 0
             })
         return parsed_data
 
@@ -175,15 +169,13 @@ class FastMossScraper:
         for item in shops_list:
             shop_id = item.get("id") or item.get("seller_id")
             link_url = f"https://www.fastmoss.com/id/shop-detail/{shop_id}" if shop_id else "#"
-            
-            # Shops usually use 'avatar' as cover
             cover_url = item.get("avatar") 
             
             parsed_data.append({
                 "Nama Toko": item.get("name"),
                 "Rating": item.get("rating"),
                 "Jml Produk": item.get("product_count"),
-                "Cover": cover_url, # NEW
+                "Cover": cover_url,
                 "Link": link_url,
                 "num_terjual": clean_currency_to_float(item.get("inc_sold_count", 0)),
                 "num_omzet": clean_currency_to_float(item.get("inc_sale_amount", 0)),
@@ -200,8 +192,6 @@ class FastMossScraper:
             cat_string = " > ".join(item.get("category_name", []) or [])
             clean_title = remove_html_tags(item.get("title"))
             price_raw = item.get('price', "0")
-            
-            # Extract Launch Time & Cover
             launch_time = item.get("launch_time") or item.get("ctime")
             cover_url = item.get("cover")
             
@@ -210,8 +200,8 @@ class FastMossScraper:
                 "Harga Display": price_raw,
                 "Kategori": cat_string,
                 "Toko": shop_name,
-                "Cover": cover_url, # NEW
-                "Waktu Rilis": launch_time, # NEW
+                "Cover": cover_url,
+                "Waktu Rilis": launch_time,
                 "Link": item.get("detail_url"),
                 "num_terjual_p": item.get("day7_sold_count", 0), 
                 "num_omzet_p": item.get("day7_sale_amount", 0),
@@ -302,40 +292,56 @@ with st.sidebar:
     disable_btn = (mode == "🔍 Cari Produk (Keyword)" and not keyword)
     start_btn = st.button(f"🚀 Mulai ({mode})", type="primary", disabled=disable_btn)
 
-# --- GLOBAL RENDER CARD FUNCTION (BERLAKU UNTUK SEMUA MODE) ---
+# --- GLOBAL RENDER CARD FUNCTION (DENGAN PROXY GAMBAR & LABEL RAPI) ---
 def render_universal_card(row, mode_type, label_metric="Terjual", label_omzet="Omzet"):
     """
-    Fungsi render kartu standar untuk semua mode.
-    Menampilkan: Cover Image (Kiri), Info Detail (Tengah), Statistik (Kanan)
+    Fungsi render kartu.
+    - Menggunakan load_image_proxy untuk menampilkan gambar.
+    - Menggunakan dictionary mapping untuk merapikan label (misal num_terjual_p -> Terjual).
     """
+    
+    # --- MAPPING LABEL AGAR BAHASA MANUSIA ---
+    LABEL_MAP = {
+        "num_terjual_p": "Terjual (Periode)",
+        "num_omzet_p": "Omzet (Periode)",
+        "num_terjual": "Terjual",
+        "num_omzet": "Omzet",
+        "num_terjual_t": "Terjual Total",
+        "num_omzet_t": "Omzet Total",
+        "Total Terjual": "Total Terjual (Akumulasi)",
+        "Total Omzet": "Total Omzet (Akumulasi)"
+    }
+    
+    # Ambil label yang bagus, jika tidak ada di kamus, gunakan label asli namun dirapikan
+    final_label_metric = LABEL_MAP.get(label_metric, label_metric)
+    final_label_omzet = LABEL_MAP.get(label_omzet, label_omzet)
+
     with st.container(border=True):
-        # Layout 3 Kolom: Gambar | Info | Statistik
         c_img, c_info, c_stats = st.columns([1, 2.5, 1.5])
         
-        # 1. Kolom Gambar
+        # 1. Kolom Gambar (PROXY)
         with c_img:
-            if row.get("Cover"):
-                st.image(row["Cover"], use_container_width=True)
+            image_url = row.get("Cover")
+            if image_url:
+                img_data = load_image_proxy(image_url) # Panggil fungsi proxy
+                if img_data:
+                    st.image(img_data, use_container_width=True)
+                else:
+                    st.markdown("📷 *Gagal memuat*") # Fallback jika proxy pun gagal
             else:
                 st.markdown("🖼️ *No Image*")
 
         # 2. Kolom Info
         with c_info:
-            # Tentukan Key Judul (Produk vs Toko)
             title_key = "Judul" if "Judul" in row else "Nama Toko"
-            
-            # Judul Kecil (H5)
             st.markdown(f"##### {row.get(title_key, '-')}")
             
-            # Detail Info
-            if "Judul" in row: # Konteks Produk
+            if "Judul" in row: # Produk
                 st.caption(f"🏪 Toko: **{row.get('Toko', '-')}**")
-                # Kategori (pendekkan jika terlalu panjang)
                 cat = row.get('Kategori', '-')
                 if len(cat) > 50: cat = cat[:50] + "..."
                 st.caption(f"📂 Kat: {cat}")
                 
-                # Harga & Tanggal Rilis
                 col_p, col_d = st.columns(2)
                 with col_p:
                     st.markdown(f"🏷️ **{row.get('Harga Display', 'Rp0')}**")
@@ -344,7 +350,7 @@ def render_universal_card(row, mode_type, label_metric="Terjual", label_omzet="O
                     if release_date:
                         fmt_date = format_date_str(release_date)
                         st.caption(f"🚀 Rilis: **{fmt_date}**")
-            else: # Konteks Toko
+            else: # Toko
                 st.caption(f"⭐ Rating: {row.get('Rating', '-')}")
                 st.caption(f"📦 Produk Aktif: {row.get('Jml Produk', '-')}")
 
@@ -354,41 +360,23 @@ def render_universal_card(row, mode_type, label_metric="Terjual", label_omzet="O
         with c_stats:
             st.markdown("##### 📊 Performa")
             
-            # Metric Utama
-            # Logic: Gunakan metric_col yang dikirim atau cari default
-            metric_val = 0
-            omzet_val = 0
-            
-            # Mapping manual jika key berbeda antar mode
-            if mode_type == "trend":
-                # Di mode trend, kolom sudah diagregasi (Total_Jual -> num_terjual_p)
-                # Lihat mapping di fungsi utama nanti
-                pass 
-            
-            # Tampilkan Metric
-            # Pastikan row[column] adalah float/int
-            
-            # Coba ambil value berdasarkan label (untuk mode Trend yg kolomnya dinamis)
-            # Atau ambil langsung dari row jika nama kolom standar
-            
-            val_metric = row.get(label_metric) # Jika dikirim dari loop Trend sudah angka
+            # Logic ambil value
+            val_metric = row.get(label_metric)
             if val_metric is None: 
-                # Fallback ke nama kolom standar scraping
-                if "Judul" in row: # Produk
+                if "Judul" in row:
                     val_metric = row.get("num_terjual_p", 0)
                     val_omzet = row.get("num_omzet_p", 0)
-                else: # Toko
+                else:
                     val_metric = row.get("num_terjual", 0)
                     val_omzet = row.get("num_omzet", 0)
             else:
                 val_omzet = row.get(label_omzet, 0)
 
-            st.metric(label=label_metric.replace("num_", "").title(), value=f"{val_metric:,.0f}")
+            st.metric(label=final_label_metric, value=f"{val_metric:,.0f}")
             
             omzet_str = f"Rp{val_omzet:,.0f}".replace(",", ".")
-            st.metric(label="Omzet", value=omzet_str)
+            st.metric(label=final_label_omzet, value=omzet_str)
 
-            # Info Tambahan untuk Mode Trend
             if 'Frekuensi Bulan' in row:
                 st.info(f"📅 Konsistensi: **{row['Frekuensi Bulan']} bln**")
                 if 'List Bulan' in row and row['List Bulan']:
@@ -434,15 +422,13 @@ if start_btn:
         if all_data:
             df = pd.DataFrame(all_data)
             
-            # Config Kolom
             key_col = "Judul" if multi_month_target == "Produk" else "Nama Toko"
             metric_col = "num_terjual_p" if multi_month_target == "Produk" else "num_terjual"
             omzet_col = "num_omzet_p" if multi_month_target == "Produk" else "num_omzet"
             
-            # Helper fields untuk grouping (Static fields)
-            group_cols = [key_col, 'Link', 'Cover'] # Tambahkan Cover di grouping
+            group_cols = [key_col, 'Link', 'Cover']
             if multi_month_target == "Produk":
-                group_cols.extend(['Toko', 'Kategori', 'Harga Display', 'Waktu Rilis']) # Tambah Waktu Rilis
+                group_cols.extend(['Toko', 'Kategori', 'Harga Display', 'Waktu Rilis'])
             else:
                 group_cols.extend(['Rating', 'Jml Produk']) 
 
@@ -450,7 +436,6 @@ if start_btn:
             st.header(f"📊 Laporan Tren: {multi_month_target}")
             tab1, tab2, tab3 = st.tabs(["🏆 Juara Umum", "💎 Konsistensi", "📅 Breakdown"])
 
-            # TAB 1: JUARA UMUM
             with tab1:
                 st.subheader("🏆 Top Performance")
                 df_total = df.groupby(group_cols).agg(
@@ -460,14 +445,12 @@ if start_btn:
                     List_Bulan=('Bulan', lambda x: ', '.join(sorted(x.unique())))
                 ).reset_index()
                 
-                # Mapping nama kolom agar sesuai render_universal_card
                 df_total = df_total.rename(columns={'num_total': 'Total Terjual', 'num_omzet': 'Total Omzet', 'Frekuensi_Bulan': 'Frekuensi Bulan', 'List_Bulan': 'List Bulan'})
                 df_total = df_total.sort_values('Total Terjual', ascending=False).reset_index(drop=True)
                 
                 for idx, row in df_total.head(50).iterrows():
                     render_universal_card(row, "trend", label_metric="Total Terjual", label_omzet="Total Omzet")
 
-            # TAB 2: KONSISTENSI
             with tab2:
                 st.subheader("💎 Tingkat Konsistensi")
                 freqs = sorted(df_total['Frekuensi Bulan'].unique(), reverse=True)
@@ -477,7 +460,6 @@ if start_btn:
                         for idx, row in subset.iterrows():
                             render_universal_card(row, "trend", label_metric="Total Terjual", label_omzet="Total Omzet")
 
-            # TAB 3: BREAKDOWN
             with tab3:
                 st.subheader("📅 Kilas Balik Per Bulan")
                 for bulan in sorted(selected_months):
@@ -485,8 +467,6 @@ if start_btn:
                     if not df_bulan.empty:
                         st.markdown(f"### 🗓️ {bulan}")
                         for idx, row in df_bulan.iterrows():
-                            # Mapping manual untuk breakdown karena nama kolom di df asli pakai 'num_terjual_p'
-                            # Kita buat alias sementara agar masuk ke fungsi render
                             row_mod = row.copy()
                             row_mod['Terjual Bulan Ini'] = row[metric_col]
                             row_mod['Omzet Bulan Ini'] = row[omzet_col]
@@ -500,7 +480,7 @@ if start_btn:
             st.warning("Data tidak ditemukan.")
 
     # ========================================================
-    # MODE 2 & 3: TERLARIS & KEYWORD (TAMPILAN KARTU JUGA)
+    # MODE 2 & 3: TERLARIS & KEYWORD
     # ========================================================
     else:
         progress_bar = st.progress(0)
@@ -537,21 +517,12 @@ if start_btn:
             else:
                 st.subheader(f"🏪 Toko Terlaris: {time_option}")
             
-            # --- RENDER KARTU UNTUK SEMUA MODE ---
             for idx, row in df.iterrows():
-                # Tentukan label metric berdasarkan mode
                 if mode == "🏪 Toko Terlaris":
-                    l_metric = "Penjualan"
-                    l_omzet = "Omzet"
-                    # Di parse_shops kita pakai num_terjual dan num_omzet
-                    # Kita mapping manual ke key yang diharapkan fungsi render jika perlu,
-                    # tapi render_universal_card sudah punya fallback logic.
-                    # Kita oper row apa adanya.
+                    # Kunci asli dari scraper adalah num_terjual & num_omzet
                     render_universal_card(row, "single", label_metric="num_terjual", label_omzet="num_omzet")
                 else:
-                    # Produk Terlaris / Keyword
-                    # Di parse_best_products kita pakai num_terjual_p (periode)
-                    # Untuk display kartu single, kita ingin tampilkan metric periode tersebut
+                    # Kunci asli dari scraper produk adalah num_terjual_p & num_omzet_p
                     render_universal_card(row, "single", label_metric="num_terjual_p", label_omzet="num_omzet_p")
             
             st.divider()
