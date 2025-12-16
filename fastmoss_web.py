@@ -271,7 +271,7 @@ with st.sidebar:
     mode = st.radio("🎯 Pilih Mode", [
         "🔍 Cari Produk (Keyword)", 
         "📦 Produk Terlaris", 
-        "🏪 Toko Terlaris"
+        "🏪 Toko Terlaris",
         "📈 Analisis Tren (Multi-Bulan)" # <--- Menu Baru
         ])
     st.divider()
@@ -591,3 +591,4 @@ if start_btn:
             st.download_button(label="📥 Download Excel/CSV", data=csv, file_name=f"fastmoss_{mode.split()[0]}_{date_val}.csv", mime="text/csv")
     else:
         st.warning(f"Tidak ada data ditemukan.")
+
