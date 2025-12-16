@@ -4,7 +4,8 @@ import pandas as pd
 import time
 import re
 from datetime import datetime
-from io import BytesIO # Diperlukan untuk memproses gambar byte
+from io import BytesIO 
+import plotly.graph_objects as go # Penting untuk membuat grafik mini
 
 # ==========================================
 # 1. KONFIGURASI & DATA
@@ -15,7 +16,6 @@ HEADERS_CONFIG = {
     "lang": "ID_ID",
     "region": "ID",
     "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    # PENTING: Update fm-sign dan cookie jika expired
     "fm-sign": "16fa6f79d7617ab63b9180aeb907b6bd", 
     "cookie": "NEXT_LOCALE=id; region=ID; utm_country=ID; utm_south=google; utm_id=kw_id_0923_01; utm_lang=id; userTimeZone=Asia%2FJakarta; _tt_enable_cookie=1; _ttp=01KC38KWNN831BY9E87TZ33273_.tt.1; fd_tk=3e275cb3799bba9d7a56995ef346c97a; _uetsid=7ff5cb70d58111f0a836a985b4652589|124paud|2|g1q|0|2170; _uetvid=7ff62600d58111f0ac53af3c8f32e7e1|1q6zulx|1765341784970|9|1|bat.bing.com/p/insights/c/l"
 }
@@ -70,23 +70,36 @@ def format_date_str(date_str):
             return dt.strftime("%d %b %Y")
         except: return date_str
 
-# --- NEW: FUNGSI PROXY GAMBAR ---
-# Kita gunakan st.cache_data agar gambar yang sama tidak didownload ulang terus menerus saat interaksi
 @st.cache_data(show_spinner=False, ttl=3600) 
 def load_image_proxy(url):
-    """
-    Mendownload gambar via Python menggunakan Headers FastMoss 
-    untuk menghindari blokir/broken image.
-    """
+    """Proxy image downloader"""
     if not url: return None
     try:
-        # Request ke URL gambar dengan Headers 'sakti' kita
         r = requests.get(url, headers=HEADERS_CONFIG, timeout=3)
         if r.status_code == 200:
-            return BytesIO(r.content) # Ubah ke format bytes yang bisa dibaca Streamlit
+            return BytesIO(r.content)
         return None
-    except:
-        return None
+    except: return None
+
+def create_mini_chart(dates, counts):
+    """Membuat grafik sparkline interaktif"""
+    if not dates or not counts: return None
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=dates, y=counts,
+        fill='tozeroy', mode='lines+markers',
+        line=dict(color='#ff6b18', width=2),
+        fillcolor='rgba(255, 107, 24, 0.1)',
+        marker=dict(size=3, color='#ff6b18'),
+        hovertemplate='%{x}<br>Jual: %{y}<extra></extra>'
+    ))
+    fig.update_layout(
+        showlegend=False, margin=dict(l=0, r=0, t=5, b=0), height=60, # Tinggi grafik kecil
+        xaxis=dict(showgrid=False, visible=False),
+        yaxis=dict(showgrid=False, visible=False),
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
+    )
+    return fig
 
 # ==========================================
 # 3. KELAS SCRAPER
@@ -193,18 +206,40 @@ class FastMossScraper:
             clean_title = remove_html_tags(item.get("title"))
             price_raw = item.get('price', "0")
             launch_time = item.get("launch_time") or item.get("ctime")
-            cover_url = item.get("cover")
+            
+            # --- FIX: AMBIL GAMBAR DARI 'img' JIKA 'cover' KOSONG ---
+            cover_url = item.get("img") or item.get("cover")
+            
+            # --- FIX: AMBIL DATA TREND UNTUK GRAFIK ---
+            trend_list = item.get("trend", [])
+            # Ambil tanggal dan nilai penjualan dari list trend
+            trend_dates = [t.get("dt") for t in trend_list]
+            trend_counts = [t.get("inc_sold_count", 0) for t in trend_list]
+            
+            # Hitung total terjual periode ini berdasarkan data trend (agar akurat dengan grafik)
+            # Jika trend kosong, fallback ke 0
+            period_sold_sum = sum(trend_counts) if trend_counts else 0
             
             parsed_data.append({
                 "Judul": clean_title,
                 "Harga Display": price_raw,
                 "Kategori": cat_string,
                 "Toko": shop_name,
-                "Cover": cover_url,
+                "Cover": cover_url, # URL gambar yang sudah diperbaiki
                 "Waktu Rilis": launch_time,
                 "Link": item.get("detail_url"),
-                "num_terjual_p": item.get("day7_sold_count", 0), 
-                "num_omzet_p": item.get("day7_sale_amount", 0),
+                
+                # Simpan data trend mentah untuk grafik
+                "trend_dates": trend_dates,
+                "trend_counts": trend_counts,
+                
+                # Gunakan hasil sum trend untuk metric 'Terjual (Periode)'
+                "num_terjual_p": period_sold_sum, 
+                
+                # Omzet periode biasanya tidak ada di trend search, kita pakai 0 atau kalkulasi manual
+                # (Harga x Terjual) bisa jadi estimasi kasar, tapi disini kita set 0 atau ambil dari data lain jika ada
+                "num_omzet_p": clean_currency_to_float(item.get("sale_amount", 0)), # Kadang 'sale_amount' di search itu total
+                
                 "num_terjual_t": item.get("sold_count", 0),
                 "num_omzet_t": item.get("sale_amount", 0),
                 "num_rating": 0
@@ -292,15 +327,15 @@ with st.sidebar:
     disable_btn = (mode == "🔍 Cari Produk (Keyword)" and not keyword)
     start_btn = st.button(f"🚀 Mulai ({mode})", type="primary", disabled=disable_btn)
 
-# --- GLOBAL RENDER CARD FUNCTION (DENGAN PROXY GAMBAR & LABEL RAPI) ---
+# --- GLOBAL RENDER CARD FUNCTION (DENGAN PROXY GAMBAR, LABEL RAPI, & GRAFIK TREN) ---
 def render_universal_card(row, mode_type, label_metric="Terjual", label_omzet="Omzet"):
     """
     Fungsi render kartu.
     - Menggunakan load_image_proxy untuk menampilkan gambar.
-    - Menggunakan dictionary mapping untuk merapikan label (misal num_terjual_p -> Terjual).
+    - Menggunakan mapping label.
+    - Menampilkan GRAFIK TREN jika data trend_dates/counts tersedia.
     """
     
-    # --- MAPPING LABEL AGAR BAHASA MANUSIA ---
     LABEL_MAP = {
         "num_terjual_p": "Terjual (Periode)",
         "num_omzet_p": "Omzet (Periode)",
@@ -312,7 +347,6 @@ def render_universal_card(row, mode_type, label_metric="Terjual", label_omzet="O
         "Total Omzet": "Total Omzet (Akumulasi)"
     }
     
-    # Ambil label yang bagus, jika tidak ada di kamus, gunakan label asli namun dirapikan
     final_label_metric = LABEL_MAP.get(label_metric, label_metric)
     final_label_omzet = LABEL_MAP.get(label_omzet, label_omzet)
 
@@ -323,11 +357,11 @@ def render_universal_card(row, mode_type, label_metric="Terjual", label_omzet="O
         with c_img:
             image_url = row.get("Cover")
             if image_url:
-                img_data = load_image_proxy(image_url) # Panggil fungsi proxy
+                img_data = load_image_proxy(image_url) 
                 if img_data:
                     st.image(img_data, use_container_width=True)
                 else:
-                    st.markdown("📷 *Gagal memuat*") # Fallback jika proxy pun gagal
+                    st.markdown("📷 *Gagal memuat*")
             else:
                 st.markdown("🖼️ *No Image*")
 
@@ -356,11 +390,10 @@ def render_universal_card(row, mode_type, label_metric="Terjual", label_omzet="O
 
             st.link_button("🔗 Lihat di FastMoss", row.get('Link', '#'))
 
-        # 3. Kolom Statistik
+        # 3. Kolom Statistik & Grafik
         with c_stats:
             st.markdown("##### 📊 Performa")
             
-            # Logic ambil value
             val_metric = row.get(label_metric)
             if val_metric is None: 
                 if "Judul" in row:
@@ -372,11 +405,22 @@ def render_universal_card(row, mode_type, label_metric="Terjual", label_omzet="O
             else:
                 val_omzet = row.get(label_omzet, 0)
 
+            # Tampilkan Angka Besar
             st.metric(label=final_label_metric, value=f"{val_metric:,.0f}")
             
             omzet_str = f"Rp{val_omzet:,.0f}".replace(",", ".")
             st.metric(label=final_label_omzet, value=omzet_str)
 
+            # --- GRAFIK TREN (JIKA ADA DATA) ---
+            # Ini akan muncul untuk Search Mode yang memiliki data trend
+            if row.get('trend_dates') and row.get('trend_counts'):
+                # Cek apakah ada data non-zero agar grafik bermakna
+                if sum(row['trend_counts']) > 0:
+                    st.caption("📉 Tren 7 Hari Terakhir:")
+                    fig = create_mini_chart(row['trend_dates'], row['trend_counts'])
+                    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+            # Info Tambahan Mode Tren
             if 'Frekuensi Bulan' in row:
                 st.info(f"📅 Konsistensi: **{row['Frekuensi Bulan']} bln**")
                 if 'List Bulan' in row and row['List Bulan']:
