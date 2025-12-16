@@ -368,9 +368,10 @@ if start_btn:
     
     # === BARU: LOGIKA MULTI BULAN (TAMPILAN KARTU/CATALOG STYLE) ===
     # === BARU: LOGIKA MULTI BULAN (TAMPILAN KARTU - FONT DIKECILKAN & NO NUMBERING) ===
+    # === BARU: LOGIKA MULTI BULAN (DENGAN DETAIL LIST BULAN) ===
     if mode == "📈 Analisis Tren (Multi-Bulan)":
-        #progress_bar = st.progress(0)
-        #status_text = st.empty()
+        # progress_bar = st.progress(0)
+        # status_text = st.empty()
         
         total_steps = len(selected_months) * max_pages
         current_step = 0
@@ -411,14 +412,14 @@ if start_btn:
             metric_col = "num_terjual_p" if multi_month_target == "Produk" else "num_terjual"
             omzet_col = "num_omzet_p" if multi_month_target == "Produk" else "num_omzet"
             
-            # --- FUNGSI HELPER UNTUK MEMBUAT KARTU (MODIFIKASI DI SINI) ---
+            # --- FUNGSI HELPER UNTUK MEMBUAT KARTU ---
             def render_card(row, label_metric="Total Terjual", label_omzet="Total Omzet"):
                 with st.container(border=True):
                     c_info, c_stats = st.columns([1.5, 2])
                     
                     # Kolom Kiri: Info Produk/Toko
                     with c_info:
-                        # PERUBAHAN: Hapus logic rank_num (#1) dan ganti #### jadi ##### (lebih kecil)
+                        # Judul kecil (H5) tanpa numbering
                         st.markdown(f"##### {row[key_col]}")
                         
                         if multi_month_target == "Produk":
@@ -431,21 +432,24 @@ if start_btn:
                         
                         st.link_button("🔗 Lihat di FastMoss", row['Link'])
 
-                    # Kolom Kanan: Statistik (Tampilan Grid)
+                    # Kolom Kanan: Statistik
                     with c_stats:
                         st.markdown("##### 📊 Performa")
                         sc1, sc2 = st.columns(2)
                         with sc1:
                             st.metric(label=label_metric, value=f"{row[metric_col]:,.0f}")
                         with sc2:
-                            # Format Omzet manual ke Rupiah
                             omzet_val = row[omzet_col]
                             omzet_str = f"Rp{omzet_val:,.0f}".replace(",", ".")
                             st.metric(label=label_omzet, value=omzet_str)
                         
-                        # Tampilkan info tambahan jika ada (misal frekuensi bulan)
+                        # --- MODIFIKASI: DETAIL BULAN ---
                         if 'Frekuensi Bulan' in row:
                             st.info(f"📅 Konsistensi: Muncul di **{row['Frekuensi Bulan']} bulan** berbeda")
+                            
+                            # Tampilkan detail bulan jika kolom 'List Bulan' tersedia
+                            if 'List Bulan' in row and row['List Bulan']:
+                                st.caption(f"🗓️ *Produk ini secara konsisten muncul di bulan: {row['List Bulan']}*")
 
             # --- TAMPILAN DASHBOARD ---
             st.divider()
@@ -459,22 +463,34 @@ if start_btn:
                 st.subheader("🏆 Top Performance (Akumulasi Total)")
                 st.markdown("Daftar diurutkan berdasarkan **total penjualan** selama periode yang dipilih.")
                 
-                # Grouping & Sum Total
-                agg_cols = {metric_col: 'sum', omzet_col: 'sum', 'Bulan': 'count'}
+                # Group Cols
                 group_cols = [key_col, 'Link']
                 if multi_month_target == "Produk":
                     group_cols.extend(['Toko', 'Kategori', 'Harga Display'])
                 else:
                     group_cols.extend(['Rating', 'Jml Produk']) 
 
-                # Lakukan Groupby
-                df_total = df.groupby(group_cols).agg(agg_cols).reset_index()
-                df_total = df_total.rename(columns={'Bulan': 'Frekuensi Bulan'})
+                # --- AGREGASI PANDAS (MODIFIKASI UTAMA) ---
+                # Menggunakan Named Aggregation untuk mendapatkan List Bulan sekaligus
+                df_total = df.groupby(group_cols).agg(
+                    Total_Jual=(metric_col, 'sum'),
+                    Total_Omzet=(omzet_col, 'sum'),
+                    Frekuensi_Bulan=('Bulan', 'nunique'),
+                    List_Bulan=('Bulan', lambda x: ', '.join(sorted(x.unique()))) # Menggabungkan nama bulan jadi string
+                ).reset_index()
+
+                # Rename kolom agar sesuai dengan variabel yang dipakai render_card
+                df_total = df_total.rename(columns={
+                    'Total_Jual': metric_col,
+                    'Total_Omzet': omzet_col,
+                    'Frekuensi_Bulan': 'Frekuensi Bulan',
+                    'List_Bulan': 'List Bulan'
+                })
+                
                 df_total = df_total.sort_values(metric_col, ascending=False).reset_index(drop=True)
                 
-                # Render Kartu (Top 50 saja agar tidak berat)
+                # Render Kartu
                 for idx, row in df_total.head(50).iterrows():
-                    # Tidak perlu kirim rank_num lagi
                     render_card(row, label_metric="Total Terjual (Akumulasi)", label_omzet="Total Omzet (Akumulasi)")
                     
                 if len(df_total) > 50:
@@ -485,6 +501,7 @@ if start_btn:
                 st.subheader("💎 Tingkat Konsistensi")
                 st.markdown("Produk/Toko dikelompokkan berdasarkan **seberapa sering** mereka muncul di Top Rank setiap bulannya.")
                 
+                # df_total sudah memiliki kolom 'List Bulan' dari proses di atas
                 freqs = sorted(df_total['Frekuensi Bulan'].unique(), reverse=True)
                 
                 for freq in freqs:
@@ -506,6 +523,7 @@ if start_btn:
                     if not df_bulan.empty:
                         st.markdown(f"### 🗓️ Bulan: {bulan}")
                         for idx, row in df_bulan.iterrows():
+                            # Tidak menampilkan List Bulan di sini karena ini view per bulan (redundant)
                             render_card(row, label_metric="Terjual (Bulan Ini)", label_omzet="Omzet (Bulan Ini)")
                         st.divider()
                     else:
@@ -636,4 +654,3 @@ if start_btn:
                 st.download_button(label="📥 Download Excel/CSV", data=csv, file_name=f"fastmoss_{mode.split()[0]}_{date_val}.csv", mime="text/csv")
         else:
             st.warning(f"Tidak ada data ditemukan.")
-
