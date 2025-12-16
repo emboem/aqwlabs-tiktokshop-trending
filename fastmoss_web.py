@@ -366,11 +366,10 @@ if start_btn:
     progress_bar = st.progress(0)
     status_text = st.empty()
     
-    # === BARU: LOGIKA MULTI BULAN ===
-    # === BARU: LOGIKA MULTI BULAN (UPDATED) ===
+    # === BARU: LOGIKA MULTI BULAN (TAMPILAN KARTU/CATALOG STYLE) ===
     if mode == "📈 Analisis Tren (Multi-Bulan)":
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+        # progress_bar = st.progress(0)
+        # status_text = st.empty()
         
         total_steps = len(selected_months) * max_pages
         current_step = 0
@@ -395,7 +394,6 @@ if start_btn:
                     
                     all_data.extend(parsed)
                 except Exception as e:
-                    # Abaikan error kecil, lanjut ke bulan berikutnya
                     pass
 
                 current_step += 1
@@ -407,170 +405,122 @@ if start_btn:
         if all_data:
             df = pd.DataFrame(all_data)
             
-            # --- PRE-PROCESSING DATA UNTUK VISUALISASI ---
-            # 1. Tentukan kolom kunci
+            # --- KONFIGURASI KOLOM DATA ---
             key_col = "Judul" if multi_month_target == "Produk" else "Nama Toko"
             metric_col = "num_terjual_p" if multi_month_target == "Produk" else "num_terjual"
             omzet_col = "num_omzet_p" if multi_month_target == "Produk" else "num_omzet"
             
-            # 2. Buat Ranking Global dulu untuk penamaan "Produk 1, Produk 2, dst"
-            # Kita ranking berdasarkan Total Penjualan selama periode
-            rank_df = df.groupby(key_col)[metric_col].sum().reset_index().sort_values(metric_col, ascending=False)
-            rank_df['Rank'] = range(1, len(rank_df) + 1)
-            
-            # Buat Dictionary Mapping: { "Judul Asli Panjang": "Produk 1" }
-            # Ini kuncinya agar grafik rapi
-            alias_prefix = "Produk" if multi_month_target == "Produk" else "Toko"
-            name_map = dict(zip(rank_df[key_col], [f"{alias_prefix} #{r}" for r in rank_df['Rank']]))
-            
-            # Aplikasikan Mapping ke DataFrame Utama
-            df['Alias'] = df[key_col].map(name_map)
-            
-            # --- DASHBOARD ---
+            # --- FUNGSI HELPER UNTUK MEMBUAT KARTU ---
+            def render_card(row, rank_num=None, label_metric="Total Terjual", label_omzet="Total Omzet"):
+                with st.container(border=True):
+                    c_info, c_stats = st.columns([1.5, 2])
+                    
+                    # Kolom Kiri: Info Produk/Toko
+                    with c_info:
+                        rank_badge = f"#{rank_num} " if rank_num else ""
+                        st.markdown(f"#### {rank_badge}{row[key_col]}")
+                        
+                        if multi_month_target == "Produk":
+                            st.caption(f"🏪 Toko: **{row.get('Toko', '-')}**")
+                            st.caption(f"📂 Kategori: {row.get('Kategori', '-')}")
+                            st.markdown(f"🏷️ **{row.get('Harga Display', 'Rp0')}**")
+                        else:
+                            st.caption(f"⭐ Rating: {row.get('Rating', '-')}")
+                            st.caption(f"📦 Jml Produk: {row.get('Jml Produk', '-')}")
+                        
+                        st.link_button("🔗 Lihat di FastMoss", row['Link'])
+
+                    # Kolom Kanan: Statistik (Tampilan Grid)
+                    with c_stats:
+                        st.markdown("##### 📊 Performa")
+                        sc1, sc2 = st.columns(2)
+                        with sc1:
+                            st.metric(label=label_metric, value=f"{row[metric_col]:,.0f}")
+                        with sc2:
+                            # Format Omzet manual ke Rupiah
+                            omzet_val = row[omzet_col]
+                            omzet_str = f"Rp{omzet_val:,.0f}".replace(",", ".")
+                            st.metric(label=label_omzet, value=omzet_str)
+                        
+                        # Tampilkan info tambahan jika ada (misal frekuensi bulan)
+                        if 'Frekuensi Bulan' in row:
+                            st.info(f"📅 Konsistensi: Muncul di **{row['Frekuensi Bulan']} bulan** berbeda")
+
+            # --- TAMPILAN DASHBOARD ---
             st.divider()
-            st.header(f"📊 Laporan Tren: {multi_month_target} ({selected_months[0]} s/d {selected_months[-1]})")
+            st.header(f"📊 Laporan Tren: {multi_month_target}")
+            st.caption(f"Periode: {selected_months[0]} s/d {selected_months[-1]}")
 
             tab1, tab2, tab3 = st.tabs(["🏆 Juara Umum (Total)", "💎 Paling Konsisten", "📅 Breakdown Bulanan"])
 
-            # CONFIG FORMAT RUPIAH UNTUK TABEL
-            rupiah_config = st.column_config.NumberColumn(
-                "Omzet (Rp)",
-                help="Total Omzet dalam Rupiah",
-                format="Rp %.0f", # Format Rupiah otomatis di tabel Streamlit
-            )
-
-            # --- TAB 1: JUARA UMUM ---
+            # === TAB 1: JUARA UMUM (TOTAL) ===
             with tab1:
-                st.subheader("Total Akumulasi Penjualan")
+                st.subheader("🏆 Top Performance (Akumulasi Total)")
+                st.markdown("Daftar diurutkan berdasarkan **total penjualan** selama periode yang dipilih.")
                 
-                # Agregasi Total
-                df_total = df.groupby(['Alias', key_col])[[metric_col, omzet_col]].sum().reset_index()
-                df_total = df_total.sort_values(metric_col, ascending=False).head(20)
+                # Grouping & Sum Total
+                # Kita sertakan kolom info lain (Toko, Link, Harga) agar bisa ditampilkan di kartu
+                agg_cols = {metric_col: 'sum', omzet_col: 'sum', 'Bulan': 'count'}
+                group_cols = [key_col, 'Link']
+                if multi_month_target == "Produk":
+                    group_cols.extend(['Toko', 'Kategori', 'Harga Display'])
+                else:
+                    group_cols.extend(['Rating', 'Jml Produk']) # Kolom tambahan untuk toko
+
+                # Lakukan Groupby
+                # Note: Menggunakan 'first' untuk kolom statis, 'sum' untuk metric
+                df_total = df.groupby(group_cols).agg(agg_cols).reset_index()
+                df_total = df_total.rename(columns={'Bulan': 'Frekuensi Bulan'})
+                df_total = df_total.sort_values(metric_col, ascending=False).reset_index(drop=True)
                 
-                # Grafik Bar Chart (Pakai Alias agar rapi)
-                # Kita buat teks custom untuk tooltip dan label bar
-                df_total['omzet_fmt'] = df_total[omzet_col].apply(lambda x: f"Rp{x:,.0f}".replace(",", "."))
-                
-                c1, c2 = st.columns(2)
-                with c1:
-                    fig_qty = px.bar(df_total, x=metric_col, y='Alias', orientation='h', 
-                                     title="Top 20 Total Terjual", text_auto='.2s',
-                                     color_discrete_sequence=['#ff6b18'])
-                    fig_qty.update_layout(yaxis={'categoryorder':'total ascending', 'title': ''})
-                    st.plotly_chart(fig_qty, use_container_width=True)
+                # Render Kartu (Top 50 saja agar tidak berat)
+                for idx, row in df_total.head(50).iterrows():
+                    render_card(row, rank_num=idx+1, label_metric="Total Terjual (Akumulasi)", label_omzet="Total Omzet (Akumulasi)")
                     
-                with c2:
-                    fig_rev = px.bar(df_total, x=omzet_col, y='Alias', orientation='h', 
-                                     title="Top 20 Total Omzet", text='omzet_fmt', # Pakai format rupiah
-                                     color_discrete_sequence=['#ff6b18'])
-                    fig_rev.update_layout(yaxis={'categoryorder':'total ascending', 'title': ''})
-                    st.plotly_chart(fig_rev, use_container_width=True)
-                
-                st.info("ℹ️ **Keterangan:** Nama disamarkan menjadi 'Produk #X' agar grafik mudah dibaca. Lihat tabel di bawah untuk nama aslinya.")
-                
-                # Tabel Detail
-                st.dataframe(
-                    df_total[['Alias', key_col, metric_col, omzet_col]], 
-                    column_config={
-                        key_col: "Nama Asli",
-                        omzet_col: rupiah_config
-                    },
-                    use_container_width=True,
-                    hide_index=True
-                )
+                if len(df_total) > 50:
+                    st.caption("⚠️ Menampilkan 50 data teratas. Download CSV untuk data lengkap.")
 
-            # --- TAB 2: KONSISTENSI ---
+            # === TAB 2: PALING KONSISTEN ===
             with tab2:
-                st.subheader("Matriks Konsistensi (Tahan Banting)")
+                st.subheader("💎 Tingkat Konsistensi")
+                st.markdown("Produk/Toko dikelompokkan berdasarkan **seberapa sering** mereka muncul di Top Rank setiap bulannya.")
                 
-                df_persist = df.groupby(['Alias', key_col]).agg({
-                    'Bulan': 'nunique',
-                    metric_col: 'mean',
-                    omzet_col: 'mean'
-                }).reset_index()
+                # Menggunakan df_total yang sudah dihitung frekuensi bulannya
+                # Ambil list frekuensi unik (misal: 12, 11, ... 1)
+                freqs = sorted(df_total['Frekuensi Bulan'].unique(), reverse=True)
                 
-                df_persist.columns = ['Alias', 'Nama Asli', 'Frekuensi Bulan', 'Rata-rata Jual', 'Rata-rata Omzet']
-                df_persist = df_persist.sort_values('Frekuensi Bulan', ascending=False).head(20)
-                
-                fig = px.scatter(df_persist, x='Rata-rata Jual', y='Frekuensi Bulan', 
-                                 size='Rata-rata Jual', color='Frekuensi Bulan', 
-                                 hover_name='Nama Asli', text='Alias',
-                                 title="Matriks: Seberapa Sering Muncul vs Rata-rata Penjualan",
-                                 color_continuous_scale='Oranges')
-                fig.update_traces(textposition='top center')
-                st.plotly_chart(fig, use_container_width=True)
-                
-                st.dataframe(
-                    df_persist, 
-                    column_config={'Rata-rata Omzet': rupiah_config},
-                    use_container_width=True
-                )
+                for freq in freqs:
+                    subset = df_total[df_total['Frekuensi Bulan'] == freq]
+                    # Urutkan lagi subset berdasarkan penjualan tertinggi
+                    subset = subset.sort_values(metric_col, ascending=False).head(5)
+                    
+                    with st.expander(f"🗓️ Muncul di {freq} Bulan ({len(subset)} Item Teratas)", expanded=(freq == freqs[0])):
+                        for idx, row in subset.iterrows():
+                            # Kita tidak butuh rank global di sini, jadi rank_num=None
+                            render_card(row, label_metric="Total Terjual", label_omzet="Total Omzet")
 
-            # --- TAB 3: BREAKDOWN BULANAN (PERBAIKAN UTAMA) ---
+            # === TAB 3: BREAKDOWN BULANAN ===
             with tab3:
-                # BAGIAN 1: GRAFIK LINE
-                st.subheader("📈 Tren Pergerakan Top 5 Market Leader")
+                st.subheader("📅 Kilas Balik Per Bulan")
+                st.markdown("Produk/Toko dengan penjualan tertinggi di setiap bulannya.")
                 
-                # Ambil Top 5 dari df_total (Juara Umum)
-                top_5_aliases = df_total['Alias'].head(5).tolist()
-                df_trend = df[df['Alias'].isin(top_5_aliases)].copy()
-                
-                # Pivot Table: Baris=Bulan, Kolom=Alias, Isi=Terjual
-                # fill_value=0 PENTING agar garis tidak putus jika ada bulan kosong
-                pivot_trend = df_trend.pivot_table(index='Bulan', columns='Alias', values=metric_col, aggfunc='sum', fill_value=0)
-                
-                # Sorting Index Bulan agar garis berurutan (Jan -> Feb -> Mar)
-                pivot_trend = pivot_trend.sort_index()
+                # Loop setiap bulan yang tersedia
+                for bulan in sorted(selected_months):
+                    # Filter data bulan tersebut
+                    df_bulan = df[df['Bulan'] == bulan].sort_values(metric_col, ascending=False).head(5)
+                    
+                    if not df_bulan.empty:
+                        st.markdown(f"### 🗓️ Bulan: {bulan}")
+                        for idx, row in df_bulan.iterrows():
+                            render_card(row, rank_num=idx+1, label_metric="Terjual (Bulan Ini)", label_omzet="Omzet (Bulan Ini)")
+                        st.divider()
+                    else:
+                        st.caption(f"Tidak ada data untuk bulan {bulan}")
 
-                # Buat Line Chart dengan Plotly Graph Objects agar lebih kontrol
-                fig_line = go.Figure()
-                for col in pivot_trend.columns:
-                    fig_line.add_trace(go.Scatter(
-                        x=pivot_trend.index, 
-                        y=pivot_trend[col], 
-                        mode='lines+markers',
-                        name=col,
-                        line=dict(width=3),
-                        marker=dict(size=8)
-                    ))
-                
-                fig_line.update_layout(
-                    hovermode="x unified", 
-                    legend=dict(orientation="h", y=-0.2), # Legenda ditaruh di bawah biar grafik luas
-                    margin=dict(l=0, r=0, t=30, b=0),
-                    height=450
-                )
-                st.plotly_chart(fig_line, use_container_width=True)
-                
-                st.divider()
-
-                # BAGIAN 2: DETAIL PER BULAN (REQ BARU)
-                st.subheader("📅 Juara Per Bulan")
-                
-                # Dropdown pilih bulan
-                bulan_tersedia = sorted(df['Bulan'].unique())
-                pilih_bulan = st.selectbox("Pilih Bulan untuk melihat detail:", bulan_tersedia)
-                
-                # Filter data
-                df_bulan = df[df['Bulan'] == pilih_bulan].sort_values(metric_col, ascending=False).head(10)
-                
-                st.markdown(f"**Top 10 {multi_month_target} pada bulan {pilih_bulan}:**")
-                
-                # Tampilkan Tabel
-                st.dataframe(
-                    df_bulan[['Alias', key_col, metric_col, omzet_col]],
-                    column_config={
-                        key_col: "Nama Asli",
-                        metric_col: st.column_config.NumberColumn("Terjual", format="%d"),
-                        omzet_col: rupiah_config
-                    },
-                    use_container_width=True,
-                    hide_index=True
-                )
-            
-            # DOWNLOAD
+            # DOWNLOAD DATA
+            st.divider()
             csv_tren = df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Data Mentah Lengkap (CSV)", csv_tren, "laporan_tren_full.csv", "text/csv")
+            st.download_button("📥 Download Data Lengkap (CSV)", csv_tren, "laporan_tren_katalog.csv", "text/csv")
         
         else:
             st.warning("Data tidak ditemukan.")
