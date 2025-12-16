@@ -184,6 +184,7 @@ class FastMossScraper:
                 "Harga Display": price_raw, 
                 "Kategori": cat_string,
                 "Toko": shop_name,
+                "Tanggal dibuat": item.get("ctime"),
                 "Terjual (Periode)": item.get("sold_count_show"),
                 "Omzet (Periode)": item.get("sale_amount_show"),
                 "Terjual (Total)": item.get("total_sold_count_show"),
@@ -423,6 +424,7 @@ if start_btn:
                         st.markdown(f"##### {row[key_col]}")
                         
                         if multi_month_target == "Produk":
+                            st.caption(f"Upload {row.get('Tanggal dibuat', '-')}")
                             st.caption(f"🏪 Toko: **{row.get('Toko', '-')}**")
                             st.caption(f"📂 Kategori: {row.get('Kategori', '-')}")
                             st.markdown(f"🏷️ **{row.get('Harga Display', 'Rp0')}**")
