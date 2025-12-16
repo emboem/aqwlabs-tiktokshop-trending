@@ -111,6 +111,10 @@ def get_month_list(year, range_option):
         months.append(f"{y}-{m:02d}")
     return months
 
+def format_rupiah_str(value):
+    """Helper untuk format string Rp di chart Plotly"""
+    return f"Rp{value:,.0f}".replace(",", ".")
+
 # ==========================================
 # 3. KELAS SCRAPER
 # ==========================================
@@ -363,6 +367,7 @@ if start_btn:
     status_text = st.empty()
     
     # === BARU: LOGIKA MULTI BULAN ===
+    # === BARU: LOGIKA MULTI BULAN (UPDATED) ===
     if mode == "📈 Analisis Tren (Multi-Bulan)":
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -370,109 +375,205 @@ if start_btn:
         total_steps = len(selected_months) * max_pages
         current_step = 0
 
-        # Loop per Bulan
+        # --- PROSES SCRAPING ---
         for idx_m, month_str in enumerate(selected_months):
-            # Loop per Halaman
             for page in range(1, max_pages + 1):
                 status_text.markdown(f"⏳ Sedang mengambil data **{month_str}** (Halaman {page})...")
                 
-                # Setup config waktu bulanan
                 curr_time_config = {"type": "3", "value": month_str}
                 
                 try:
                     if multi_month_target == "Produk":
                         raw = scraper.get_best_products(page=page, time_config=curr_time_config, category_config=cat_config)
                         parsed = scraper.parse_best_products(raw)
-                    else: # Toko
+                    else: 
                         raw = scraper.get_best_shops(page=page, time_config=curr_time_config, category_config=cat_config)
                         parsed = scraper.parse_shops(raw)
                     
-                    # Tagging data dengan Bulan agar bisa dianalisis
                     for p in parsed:
                         p['Bulan'] = month_str 
                     
                     all_data.extend(parsed)
                 except Exception as e:
-                    st.error(f"Error pada {month_str}: {e}")
+                    # Abaikan error kecil, lanjut ke bulan berikutnya
+                    pass
 
-                # Update Progress & Delay biar aman
                 current_step += 1
                 progress_bar.progress(current_step / total_steps)
-                time.sleep(1) # Sleep 1 detik per request agar tidak diblokir
+                time.sleep(1) 
         
         status_text.success("✅ Selesai mengambil data tren!")
 
         if all_data:
             df = pd.DataFrame(all_data)
             
-            # --- DASHBOARD ANALISIS TREN ---
+            # --- PRE-PROCESSING DATA UNTUK VISUALISASI ---
+            # 1. Tentukan kolom kunci
+            key_col = "Judul" if multi_month_target == "Produk" else "Nama Toko"
+            metric_col = "num_terjual_p" if multi_month_target == "Produk" else "num_terjual"
+            omzet_col = "num_omzet_p" if multi_month_target == "Produk" else "num_omzet"
+            
+            # 2. Buat Ranking Global dulu untuk penamaan "Produk 1, Produk 2, dst"
+            # Kita ranking berdasarkan Total Penjualan selama periode
+            rank_df = df.groupby(key_col)[metric_col].sum().reset_index().sort_values(metric_col, ascending=False)
+            rank_df['Rank'] = range(1, len(rank_df) + 1)
+            
+            # Buat Dictionary Mapping: { "Judul Asli Panjang": "Produk 1" }
+            # Ini kuncinya agar grafik rapi
+            alias_prefix = "Produk" if multi_month_target == "Produk" else "Toko"
+            name_map = dict(zip(rank_df[key_col], [f"{alias_prefix} #{r}" for r in rank_df['Rank']]))
+            
+            # Aplikasikan Mapping ke DataFrame Utama
+            df['Alias'] = df[key_col].map(name_map)
+            
+            # --- DASHBOARD ---
             st.divider()
             st.header(f"📊 Laporan Tren: {multi_month_target} ({selected_months[0]} s/d {selected_months[-1]})")
-            
-            # Tentukan kolom kunci (Produk=Judul, Toko=Nama Toko)
-            key_col = "Judul" if multi_month_target == "Produk" else "Nama Toko"
-            metric_col = "num_terjual_p" if multi_month_target == "Produk" else "num_terjual" # Gunakan terjual periode (bulanan)
-            omzet_col = "num_omzet_p" if multi_month_target == "Produk" else "num_omzet"
 
             tab1, tab2, tab3 = st.tabs(["🏆 Juara Umum (Total)", "💎 Paling Konsisten", "📅 Breakdown Bulanan"])
 
-            # 1. JUARA UMUM (Total Penjualan selama periode)
+            # CONFIG FORMAT RUPIAH UNTUK TABEL
+            rupiah_config = st.column_config.NumberColumn(
+                "Omzet (Rp)",
+                help="Total Omzet dalam Rupiah",
+                format="Rp %.0f", # Format Rupiah otomatis di tabel Streamlit
+            )
+
+            # --- TAB 1: JUARA UMUM ---
             with tab1:
-                st.subheader("Siapa yang paling laris secara total akumulasi?")
-                # Group by Nama, Sum Terjual & Omzet
-                df_total = df.groupby(key_col)[[metric_col, omzet_col]].sum().reset_index()
+                st.subheader("Total Akumulasi Penjualan")
+                
+                # Agregasi Total
+                df_total = df.groupby(['Alias', key_col])[[metric_col, omzet_col]].sum().reset_index()
                 df_total = df_total.sort_values(metric_col, ascending=False).head(20)
+                
+                # Grafik Bar Chart (Pakai Alias agar rapi)
+                # Kita buat teks custom untuk tooltip dan label bar
+                df_total['omzet_fmt'] = df_total[omzet_col].apply(lambda x: f"Rp{x:,.0f}".replace(",", "."))
                 
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.plotly_chart(plot_orange_bar(df_total, metric_col, key_col, "Top 20 Total Terjual"), use_container_width=True)
+                    fig_qty = px.bar(df_total, x=metric_col, y='Alias', orientation='h', 
+                                     title="Top 20 Total Terjual", text_auto='.2s',
+                                     color_discrete_sequence=['#ff6b18'])
+                    fig_qty.update_layout(yaxis={'categoryorder':'total ascending', 'title': ''})
+                    st.plotly_chart(fig_qty, use_container_width=True)
+                    
                 with c2:
-                    st.plotly_chart(plot_orange_bar(df_total, omzet_col, key_col, "Top 20 Total Omzet"), use_container_width=True)
+                    fig_rev = px.bar(df_total, x=omzet_col, y='Alias', orientation='h', 
+                                     title="Top 20 Total Omzet", text='omzet_fmt', # Pakai format rupiah
+                                     color_discrete_sequence=['#ff6b18'])
+                    fig_rev.update_layout(yaxis={'categoryorder':'total ascending', 'title': ''})
+                    st.plotly_chart(fig_rev, use_container_width=True)
                 
-                st.dataframe(df_total, use_container_width=True)
+                st.info("ℹ️ **Keterangan:** Nama disamarkan menjadi 'Produk #X' agar grafik mudah dibaca. Lihat tabel di bawah untuk nama aslinya.")
+                
+                # Tabel Detail
+                st.dataframe(
+                    df_total[['Alias', key_col, metric_col, omzet_col]], 
+                    column_config={
+                        key_col: "Nama Asli",
+                        omzet_col: rupiah_config
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
 
-            # 2. KONSISTENSI (Berapa bulan dia masuk ranking?)
+            # --- TAB 2: KONSISTENSI ---
             with tab2:
-                st.subheader("Siapa yang paling 'tahan banting' (muncul tiap bulan)?")
-                # Hitung jumlah bulan unik kemunculan
-                df_persist = df.groupby(key_col)['Bulan'].nunique().reset_index()
-                df_persist.columns = [key_col, 'Frekuensi Bulan']
+                st.subheader("Matriks Konsistensi (Tahan Banting)")
+                
+                df_persist = df.groupby(['Alias', key_col]).agg({
+                    'Bulan': 'nunique',
+                    metric_col: 'mean',
+                    omzet_col: 'mean'
+                }).reset_index()
+                
+                df_persist.columns = ['Alias', 'Nama Asli', 'Frekuensi Bulan', 'Rata-rata Jual', 'Rata-rata Omzet']
                 df_persist = df_persist.sort_values('Frekuensi Bulan', ascending=False).head(20)
                 
-                # Merge dengan rata-rata penjualan untuk konteks
-                df_avg = df.groupby(key_col)[metric_col].mean().reset_index()
-                df_persist = pd.merge(df_persist, df_avg, on=key_col)
-                
-                fig = px.scatter(df_persist, x=metric_col, y='Frekuensi Bulan', 
-                                 size=metric_col, color='Frekuensi Bulan', hover_name=key_col,
-                                 title="Matriks Konsistensi vs Rata-rata Penjualan",
-                                 labels={metric_col: "Rata-rata Penjualan/Bulan"},
+                fig = px.scatter(df_persist, x='Rata-rata Jual', y='Frekuensi Bulan', 
+                                 size='Rata-rata Jual', color='Frekuensi Bulan', 
+                                 hover_name='Nama Asli', text='Alias',
+                                 title="Matriks: Seberapa Sering Muncul vs Rata-rata Penjualan",
                                  color_continuous_scale='Oranges')
+                fig.update_traces(textposition='top center')
                 st.plotly_chart(fig, use_container_width=True)
-                st.info("Tips: Titik di kanan atas adalah produk yang 'Laris' DAN 'Stabil' setiap bulan.")
-                st.dataframe(df_persist, use_container_width=True)
+                
+                st.dataframe(
+                    df_persist, 
+                    column_config={'Rata-rata Omzet': rupiah_config},
+                    use_container_width=True
+                )
 
-            # 3. BREAKDOWN BULANAN (Heatmap / Line Chart)
+            # --- TAB 3: BREAKDOWN BULANAN (PERBAIKAN UTAMA) ---
             with tab3:
-                st.subheader("Tren Pergerakan Bulanan")
-                # Ambil Top 5 Juara Umum untuk dijadikan grafik garis
-                top_names = df_total[key_col].head(5).tolist()
-                df_trend = df[df[key_col].isin(top_names)].copy()
+                # BAGIAN 1: GRAFIK LINE
+                st.subheader("📈 Tren Pergerakan Top 5 Market Leader")
                 
-                # Pivot table agar rapi
-                pivot_trend = df_trend.pivot_table(index='Bulan', columns=key_col, values=metric_col, aggfunc='sum').fillna(0)
+                # Ambil Top 5 dari df_total (Juara Umum)
+                top_5_aliases = df_total['Alias'].head(5).tolist()
+                df_trend = df[df['Alias'].isin(top_5_aliases)].copy()
                 
-                fig_line = px.line(pivot_trend, markers=True, title="Pergerakan Penjualan Top 5 Market Leader")
-                st.plotly_chart(fig_line, use_container_width=True)
+                # Pivot Table: Baris=Bulan, Kolom=Alias, Isi=Terjual
+                # fill_value=0 PENTING agar garis tidak putus jika ada bulan kosong
+                pivot_trend = df_trend.pivot_table(index='Bulan', columns='Alias', values=metric_col, aggfunc='sum', fill_value=0)
+                
+                # Sorting Index Bulan agar garis berurutan (Jan -> Feb -> Mar)
+                pivot_trend = pivot_trend.sort_index()
 
-                st.write("Data Mentah Per Bulan:")
-                st.dataframe(df[['Bulan', key_col, metric_col, omzet_col]].sort_values(['Bulan', metric_col], ascending=[True, False]), use_container_width=True)
+                # Buat Line Chart dengan Plotly Graph Objects agar lebih kontrol
+                fig_line = go.Figure()
+                for col in pivot_trend.columns:
+                    fig_line.add_trace(go.Scatter(
+                        x=pivot_trend.index, 
+                        y=pivot_trend[col], 
+                        mode='lines+markers',
+                        name=col,
+                        line=dict(width=3),
+                        marker=dict(size=8)
+                    ))
                 
-            # Download Button
+                fig_line.update_layout(
+                    hovermode="x unified", 
+                    legend=dict(orientation="h", y=-0.2), # Legenda ditaruh di bawah biar grafik luas
+                    margin=dict(l=0, r=0, t=30, b=0),
+                    height=450
+                )
+                st.plotly_chart(fig_line, use_container_width=True)
+                
+                st.divider()
+
+                # BAGIAN 2: DETAIL PER BULAN (REQ BARU)
+                st.subheader("📅 Juara Per Bulan")
+                
+                # Dropdown pilih bulan
+                bulan_tersedia = sorted(df['Bulan'].unique())
+                pilih_bulan = st.selectbox("Pilih Bulan untuk melihat detail:", bulan_tersedia)
+                
+                # Filter data
+                df_bulan = df[df['Bulan'] == pilih_bulan].sort_values(metric_col, ascending=False).head(10)
+                
+                st.markdown(f"**Top 10 {multi_month_target} pada bulan {pilih_bulan}:**")
+                
+                # Tampilkan Tabel
+                st.dataframe(
+                    df_bulan[['Alias', key_col, metric_col, omzet_col]],
+                    column_config={
+                        key_col: "Nama Asli",
+                        metric_col: st.column_config.NumberColumn("Terjual", format="%d"),
+                        omzet_col: rupiah_config
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
+            
+            # DOWNLOAD
             csv_tren = df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Laporan Tren Lengkap", csv_tren, "laporan_tren.csv", "text/csv")
+            st.download_button("📥 Download Data Mentah Lengkap (CSV)", csv_tren, "laporan_tren_full.csv", "text/csv")
+        
         else:
-            st.warning("Data tidak ditemukan atau terjadi kesalahan koneksi.")
+            st.warning("Data tidak ditemukan.")
 
     # === LOGIKA LAMA (SINGLE MODE) ===
     else:
