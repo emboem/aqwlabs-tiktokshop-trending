@@ -4,8 +4,10 @@ import pandas as pd
 import time
 import re
 from datetime import datetime
-from io import BytesIO 
-import plotly.graph_objects as go # Penting untuk membuat grafik mini
+from io import BytesIO
+import plotly.graph_objects as go
+from fpdf import FPDF # Library untuk membuat PDF
+import tempfile
 
 # ==========================================
 # 1. KONFIGURASI & DATA
@@ -44,6 +46,13 @@ def remove_html_tags(text):
     if not text: return "-"
     clean = re.compile('<.*?>')
     return re.sub(clean, '', text)
+
+def clean_text_for_pdf(text):
+    """Menghapus karakter non-latin/emoji agar PDF tidak error"""
+    if not text: return ""
+    text = str(text)
+    # Hapus emoji dan karakter aneh, hanya sisakan ascii basic + beberapa simbol
+    return text.encode('latin-1', 'replace').decode('latin-1')
 
 def get_month_list(year, range_option):
     months = []
@@ -94,12 +103,127 @@ def create_mini_chart(dates, counts):
         hovertemplate='%{x}<br>Jual: %{y}<extra></extra>'
     ))
     fig.update_layout(
-        showlegend=False, margin=dict(l=0, r=0, t=5, b=0), height=60, # Tinggi grafik kecil
+        showlegend=False, margin=dict(l=0, r=0, t=5, b=0), height=60, 
         xaxis=dict(showgrid=False, visible=False),
         yaxis=dict(showgrid=False, visible=False),
         paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
     )
     return fig
+
+# --- PDF GENERATOR CLASS ---
+class PDFReport(FPDF):
+    def header(self):
+        self.set_font('Arial', 'B', 12)
+        self.cell(0, 10, 'Laporan Analisis TiktokShop - Aqwam Lab', 0, 1, 'C')
+        self.ln(5)
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('Arial', 'I', 8)
+        self.cell(0, 10, f'Halaman {self.page_no()}', 0, 0, 'C')
+
+def generate_pdf_bytes(df, title_report, target_type="Produk"):
+    pdf = PDFReport()
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    
+    pdf.set_font("Arial", "B", 14)
+    pdf.cell(0, 10, clean_text_for_pdf(title_report), 0, 1, 'L')
+    pdf.ln(5)
+    
+    # Loop Dataframe
+    for idx, row in df.iterrows():
+        # --- KONFIGURASI KARTU PDF ---
+        card_height = 40
+        pdf.set_fill_color(250, 250, 250) # Abu-abu sangat muda
+        pdf.rect(pdf.get_x(), pdf.get_y(), 190, card_height, 'F') # Gambar Kotak
+        
+        start_x = pdf.get_x()
+        start_y = pdf.get_y()
+        
+        # 1. GAMBAR (KIRI)
+        image_url = row.get("Cover")
+        img_placed = False
+        if image_url:
+            img_data = load_image_proxy(image_url) # Ambil dari cache
+            if img_data:
+                try:
+                    # Simpan ke tempfile agar FPDF bisa baca
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                        tmp.write(img_data.getvalue())
+                        tmp_path = tmp.name
+                    
+                    pdf.image(tmp_path, x=start_x + 2, y=start_y + 2, w=36, h=36)
+                    img_placed = True
+                except:
+                    pass
+        
+        if not img_placed:
+            pdf.set_xy(start_x + 2, start_y + 15)
+            pdf.set_font("Arial", "I", 8)
+            pdf.cell(36, 10, "No Image", 0, 0, 'C')
+
+        # 2. INFO TENGAH
+        pdf.set_xy(start_x + 40, start_y + 2)
+        
+        # Judul
+        title_txt = row.get("Judul") or row.get("Nama Toko") or "-"
+        # Potong judul jika terlalu panjang
+        title_txt = (title_txt[:65] + '..') if len(title_txt) > 65 else title_txt
+        
+        pdf.set_font("Arial", "B", 10)
+        pdf.multi_cell(90, 5, clean_text_for_pdf(title_txt))
+        
+        # Detail
+        pdf.set_xy(start_x + 40, pdf.get_y() + 1)
+        pdf.set_font("Arial", "", 8)
+        
+        if target_type == "Produk":
+            toko = row.get('Toko', '-')
+            kat = row.get('Kategori', '-')[:40]
+            price = row.get('Harga Display', '-')
+            pdf.cell(90, 4, clean_text_for_pdf(f"Toko: {toko}"), 0, 1)
+            pdf.set_x(start_x + 40)
+            pdf.cell(90, 4, clean_text_for_pdf(f"Kat: {kat}"), 0, 1)
+            pdf.set_x(start_x + 40)
+            pdf.set_font("Arial", "B", 9)
+            pdf.cell(90, 5, clean_text_for_pdf(f"{price}"), 0, 1)
+        else: # Toko
+            rating = row.get('Rating', '-')
+            jml = row.get('Jml Produk', '-')
+            pdf.cell(90, 5, clean_text_for_pdf(f"Rating: {rating} | Produk: {jml}"), 0, 1)
+
+        # 3. STATISTIK KANAN
+        pdf.set_xy(start_x + 135, start_y + 5)
+        
+        # Logika Ambil Data (Sama seperti render_card)
+        metric_val = row.get("num_terjual_p") or row.get("num_terjual") or row.get("Total Terjual") or 0
+        omzet_val = row.get("num_omzet_p") or row.get("num_omzet") or row.get("Total Omzet") or 0
+        
+        pdf.set_font("Arial", "", 8)
+        pdf.cell(50, 5, "Terjual", 0, 1, 'R')
+        
+        pdf.set_x(start_x + 135)
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(50, 6, f"{metric_val:,.0f}", 0, 1, 'R')
+        
+        pdf.set_x(start_x + 135)
+        pdf.set_font("Arial", "", 8)
+        pdf.cell(50, 5, "Omzet", 0, 1, 'R')
+        
+        pdf.set_x(start_x + 135)
+        pdf.set_font("Arial", "B", 10)
+        omzet_str = f"Rp{omzet_val:,.0f}".replace(",", ".")
+        pdf.cell(50, 6, omzet_str, 0, 1, 'R')
+
+        # Geser Y untuk kartu berikutnya
+        pdf.set_y(start_y + card_height + 5)
+        
+        # Cek page break
+        if pdf.get_y() > 250:
+            pdf.add_page()
+
+    return pdf.output(dest='S').encode('latin-1', 'ignore') 
 
 # ==========================================
 # 3. KELAS SCRAPER
@@ -206,18 +330,11 @@ class FastMossScraper:
             clean_title = remove_html_tags(item.get("title"))
             price_raw = item.get('price', "0")
             launch_time = item.get("launch_time") or item.get("ctime")
-            
-            # --- FIX: AMBIL GAMBAR DARI 'img' JIKA 'cover' KOSONG ---
             cover_url = item.get("img") or item.get("cover")
             
-            # --- FIX: AMBIL DATA TREND UNTUK GRAFIK ---
             trend_list = item.get("trend", [])
-            # Ambil tanggal dan nilai penjualan dari list trend
             trend_dates = [t.get("dt") for t in trend_list]
             trend_counts = [t.get("inc_sold_count", 0) for t in trend_list]
-            
-            # Hitung total terjual periode ini berdasarkan data trend (agar akurat dengan grafik)
-            # Jika trend kosong, fallback ke 0
             period_sold_sum = sum(trend_counts) if trend_counts else 0
             
             parsed_data.append({
@@ -225,21 +342,13 @@ class FastMossScraper:
                 "Harga Display": price_raw,
                 "Kategori": cat_string,
                 "Toko": shop_name,
-                "Cover": cover_url, # URL gambar yang sudah diperbaiki
+                "Cover": cover_url,
                 "Waktu Rilis": launch_time,
                 "Link": item.get("detail_url"),
-                
-                # Simpan data trend mentah untuk grafik
                 "trend_dates": trend_dates,
                 "trend_counts": trend_counts,
-                
-                # Gunakan hasil sum trend untuk metric 'Terjual (Periode)'
                 "num_terjual_p": period_sold_sum, 
-                
-                # Omzet periode biasanya tidak ada di trend search, kita pakai 0 atau kalkulasi manual
-                # (Harga x Terjual) bisa jadi estimasi kasar, tapi disini kita set 0 atau ambil dari data lain jika ada
-                "num_omzet_p": clean_currency_to_float(item.get("sale_amount", 0)), # Kadang 'sale_amount' di search itu total
-                
+                "num_omzet_p": clean_currency_to_float(item.get("sale_amount", 0)),
                 "num_terjual_t": item.get("sold_count", 0),
                 "num_omzet_t": item.get("sale_amount", 0),
                 "num_rating": 0
@@ -253,6 +362,16 @@ class FastMossScraper:
 st.set_page_config(page_title="Aqwam Lab Tool | Tiktokshop", layout="wide")
 st.title("🕵️ Tiktokshop Trending Product")
 st.caption("Scraper data produk terlaris dan toko terlaris dari FastMoss.com")
+
+# --- INISIALISASI SESSION STATE (FITUR MEMORI) ---
+if 'scraped_data' not in st.session_state:
+    st.session_state['scraped_data'] = None
+if 'active_mode' not in st.session_state:
+    st.session_state['active_mode'] = None
+if 'active_target_type' not in st.session_state:
+    st.session_state['active_target_type'] = "Produk" # Default
+if 'active_title' not in st.session_state:
+    st.session_state['active_title'] = "Hasil Analisis"
 
 # --- SIDEBAR ---
 with st.sidebar:
@@ -327,15 +446,8 @@ with st.sidebar:
     disable_btn = (mode == "🔍 Cari Produk (Keyword)" and not keyword)
     start_btn = st.button(f"🚀 Mulai ({mode})", type="primary", disabled=disable_btn)
 
-# --- GLOBAL RENDER CARD FUNCTION (DENGAN PROXY GAMBAR, LABEL RAPI, & GRAFIK TREN) ---
+# --- GLOBAL RENDER CARD FUNCTION ---
 def render_universal_card(row, mode_type, label_metric="Terjual", label_omzet="Omzet"):
-    """
-    Fungsi render kartu.
-    - Menggunakan load_image_proxy untuk menampilkan gambar.
-    - Menggunakan mapping label.
-    - Menampilkan GRAFIK TREN jika data trend_dates/counts tersedia.
-    """
-    
     LABEL_MAP = {
         "num_terjual_p": "Terjual (Periode)",
         "num_omzet_p": "Omzet (Periode)",
@@ -353,7 +465,6 @@ def render_universal_card(row, mode_type, label_metric="Terjual", label_omzet="O
     with st.container(border=True):
         c_img, c_info, c_stats = st.columns([1, 2.5, 1.5])
         
-        # 1. Kolom Gambar (PROXY)
         with c_img:
             image_url = row.get("Cover")
             if image_url:
@@ -361,11 +472,10 @@ def render_universal_card(row, mode_type, label_metric="Terjual", label_omzet="O
                 if img_data:
                     st.image(img_data, use_container_width=True)
                 else:
-                    st.markdown("📷 *Gagal memuat*")
+                    st.markdown("📷 *Gagal*")
             else:
                 st.markdown("🖼️ *No Image*")
 
-        # 2. Kolom Info
         with c_info:
             title_key = "Judul" if "Judul" in row else "Nama Toko"
             st.markdown(f"##### {row.get(title_key, '-')}")
@@ -390,7 +500,6 @@ def render_universal_card(row, mode_type, label_metric="Terjual", label_omzet="O
 
             st.link_button("🔗 Lihat di FastMoss", row.get('Link', '#'))
 
-        # 3. Kolom Statistik & Grafik
         with c_stats:
             st.markdown("##### 📊 Performa")
             
@@ -405,37 +514,30 @@ def render_universal_card(row, mode_type, label_metric="Terjual", label_omzet="O
             else:
                 val_omzet = row.get(label_omzet, 0)
 
-            # Tampilkan Angka Besar
             st.metric(label=final_label_metric, value=f"{val_metric:,.0f}")
             
             omzet_str = f"Rp{val_omzet:,.0f}".replace(",", ".")
             st.metric(label=final_label_omzet, value=omzet_str)
 
-            # --- GRAFIK TREN (JIKA ADA DATA) ---
-            # Ini akan muncul untuk Search Mode yang memiliki data trend
             if row.get('trend_dates') and row.get('trend_counts'):
-                # Cek apakah ada data non-zero agar grafik bermakna
                 if sum(row['trend_counts']) > 0:
                     st.caption("📉 Tren 7 Hari Terakhir:")
                     fig = create_mini_chart(row['trend_dates'], row['trend_counts'])
                     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
-            # Info Tambahan Mode Tren
             if 'Frekuensi Bulan' in row:
                 st.info(f"📅 Konsistensi: **{row['Frekuensi Bulan']} bln**")
                 if 'List Bulan' in row and row['List Bulan']:
                      st.caption(f"🗓️ *Bulan: {row['List Bulan']}*")
 
 
-# --- LOGIKA UTAMA ---
+# --- LOGIKA UTAMA (PROSES & SIMPAN KE SESSION STATE) ---
 if start_btn:
     scraper = FastMossScraper()
     cat_config = {"l1": l1_val, "l2": l2_val, "l3": l3_val}
-    all_data = []
+    temp_data = [] # Data sementara sebelum disimpan ke state
     
-    # ========================================================
-    # MODE 1: ANALISIS TREN (MULTI BULAN)
-    # ========================================================
+    # 1. PROSES SCRAPING
     if mode == "📈 Analisis Tren (Multi-Bulan)":
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -455,123 +557,153 @@ if start_btn:
                         parsed = scraper.parse_shops(raw)
                     
                     for p in parsed: p['Bulan'] = month_str 
-                    all_data.extend(parsed)
+                    temp_data.extend(parsed)
                 except: pass
                 current_step += 1
                 progress_bar.progress(current_step / total_steps)
                 time.sleep(1) 
-        
         status_text.success("✅ Selesai mengambil data tren!")
+        
+        # Set Metadata untuk judul laporan
+        st.session_state['active_title'] = f"Laporan Tren {multi_month_target} ({selected_months[0]} s/d {selected_months[-1]})"
+        st.session_state['active_target_type'] = multi_month_target
 
-        if all_data:
-            df = pd.DataFrame(all_data)
-            
-            key_col = "Judul" if multi_month_target == "Produk" else "Nama Toko"
-            metric_col = "num_terjual_p" if multi_month_target == "Produk" else "num_terjual"
-            omzet_col = "num_omzet_p" if multi_month_target == "Produk" else "num_omzet"
-            
-            group_cols = [key_col, 'Link', 'Cover']
-            if multi_month_target == "Produk":
-                group_cols.extend(['Toko', 'Kategori', 'Harga Display', 'Waktu Rilis'])
-            else:
-                group_cols.extend(['Rating', 'Jml Produk']) 
-
-            st.divider()
-            st.header(f"📊 Laporan Tren: {multi_month_target}")
-            tab1, tab2, tab3 = st.tabs(["🏆 Juara Umum", "💎 Konsistensi", "📅 Breakdown"])
-
-            with tab1:
-                st.subheader("🏆 Top Performance")
-                df_total = df.groupby(group_cols).agg(
-                    num_total=(metric_col, 'sum'),
-                    num_omzet=(omzet_col, 'sum'),
-                    Frekuensi_Bulan=('Bulan', 'nunique'),
-                    List_Bulan=('Bulan', lambda x: ', '.join(sorted(x.unique())))
-                ).reset_index()
-                
-                df_total = df_total.rename(columns={'num_total': 'Total Terjual', 'num_omzet': 'Total Omzet', 'Frekuensi_Bulan': 'Frekuensi Bulan', 'List_Bulan': 'List Bulan'})
-                df_total = df_total.sort_values('Total Terjual', ascending=False).reset_index(drop=True)
-                
-                for idx, row in df_total.head(50).iterrows():
-                    render_universal_card(row, "trend", label_metric="Total Terjual", label_omzet="Total Omzet")
-
-            with tab2:
-                st.subheader("💎 Tingkat Konsistensi")
-                freqs = sorted(df_total['Frekuensi Bulan'].unique(), reverse=True)
-                for freq in freqs:
-                    subset = df_total[df_total['Frekuensi Bulan'] == freq].sort_values('Total Terjual', ascending=False).head(5)
-                    with st.expander(f"🗓️ Muncul di {freq} Bulan ({len(subset)} Item)", expanded=(freq==freqs[0])):
-                        for idx, row in subset.iterrows():
-                            render_universal_card(row, "trend", label_metric="Total Terjual", label_omzet="Total Omzet")
-
-            with tab3:
-                st.subheader("📅 Kilas Balik Per Bulan")
-                for bulan in sorted(selected_months):
-                    df_bulan = df[df['Bulan'] == bulan].sort_values(metric_col, ascending=False).head(5)
-                    if not df_bulan.empty:
-                        st.markdown(f"### 🗓️ {bulan}")
-                        for idx, row in df_bulan.iterrows():
-                            row_mod = row.copy()
-                            row_mod['Terjual Bulan Ini'] = row[metric_col]
-                            row_mod['Omzet Bulan Ini'] = row[omzet_col]
-                            render_universal_card(row_mod, "trend", label_metric="Terjual Bulan Ini", label_omzet="Omzet Bulan Ini")
-                        st.divider()
-
-            st.divider()
-            csv_tren = df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Data Lengkap (CSV)", csv_tren, "laporan_tren.csv", "text/csv")
-        else:
-            st.warning("Data tidak ditemukan.")
-
-    # ========================================================
-    # MODE 2 & 3: TERLARIS & KEYWORD
-    # ========================================================
     else:
         progress_bar = st.progress(0)
         status_text = st.empty()
-        
         for i in range(1, max_pages + 1):
             status_text.text(f"Mengambil halaman {i} dari {max_pages}...")
-            
             if mode == "📦 Produk Terlaris":
                 raw = scraper.get_best_products(page=i, time_config=time_config, category_config=cat_config)
-                if raw: all_data.extend(scraper.parse_best_products(raw))
-            
+                if raw: temp_data.extend(scraper.parse_best_products(raw))
             elif mode == "🏪 Toko Terlaris":
                 raw = scraper.get_best_shops(page=i, time_config=time_config, category_config=cat_config)
-                if raw: all_data.extend(scraper.parse_shops(raw))
-            
+                if raw: temp_data.extend(scraper.parse_shops(raw))
             elif mode == "🔍 Cari Produk (Keyword)":
                 raw = scraper.search_products(keyword=keyword, page=i, category_config=cat_config)
-                if raw: all_data.extend(scraper.parse_search_results(raw))
-            
+                if raw: temp_data.extend(scraper.parse_search_results(raw))
             progress_bar.progress(i / max_pages)
             time.sleep(1)
-        
         status_text.success("Selesai!")
-        
-        if all_data:
-            df = pd.DataFrame(all_data)
-            
-            st.divider()
-            if mode == "🔍 Cari Produk (Keyword)":
-                st.subheader(f"🔎 Hasil Pencarian: '{keyword}'")
-            elif mode == "📦 Produk Terlaris":
-                st.subheader(f"📦 Produk Terlaris: {time_option}")
-            else:
-                st.subheader(f"🏪 Toko Terlaris: {time_option}")
-            
-            for idx, row in df.iterrows():
-                if mode == "🏪 Toko Terlaris":
-                    # Kunci asli dari scraper adalah num_terjual & num_omzet
-                    render_universal_card(row, "single", label_metric="num_terjual", label_omzet="num_omzet")
-                else:
-                    # Kunci asli dari scraper produk adalah num_terjual_p & num_omzet_p
-                    render_universal_card(row, "single", label_metric="num_terjual_p", label_omzet="num_omzet_p")
-            
-            st.divider()
-            csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button(label="📥 Download Data Lengkap (CSV)", data=csv, file_name=f"data_fastmoss.csv", mime="text/csv")
-        
+
+        # Set Metadata
+        if mode == "🔍 Cari Produk (Keyword)":
+            st.session_state['active_title'] = f"Hasil Pencarian: '{keyword}'"
+            st.session_state['active_target_type'] = "Produk"
+        elif mode == "📦 Produk Terlaris":
+            st.session_state['active_title'] = f"Produk Terlaris ({time_option})"
+            st.session_state['active_target_type'] = "Produk"
         else:
-            st.warning("Data tidak ditemukan.")
+            st.session_state['active_title'] = f"Toko Terlaris ({time_option})"
+            st.session_state['active_target_type'] = "Toko"
+
+    # 2. SIMPAN KE SESSION STATE (MEMORI)
+    if temp_data:
+        st.session_state['scraped_data'] = pd.DataFrame(temp_data)
+        st.session_state['active_mode'] = mode
+    else:
+        st.session_state['scraped_data'] = None
+        st.warning("Data tidak ditemukan.")
+
+
+# --- TAMPILAN DATA DARI SESSION STATE (PERSISTENCE) ---
+if st.session_state['scraped_data'] is not None:
+    df = st.session_state['scraped_data']
+    active_mode = st.session_state['active_mode']
+    active_title = st.session_state['active_title']
+    target_type = st.session_state['active_target_type'] # Produk / Toko
+
+    # 1. TAMPILAN MODE TREN
+    if active_mode == "📈 Analisis Tren (Multi-Bulan)":
+        key_col = "Judul" if target_type == "Produk" else "Nama Toko"
+        metric_col = "num_terjual_p" if target_type == "Produk" else "num_terjual"
+        omzet_col = "num_omzet_p" if target_type == "Produk" else "num_omzet"
+        
+        group_cols = [key_col, 'Link', 'Cover']
+        if target_type == "Produk":
+            group_cols.extend(['Toko', 'Kategori', 'Harga Display', 'Waktu Rilis'])
+        else:
+            group_cols.extend(['Rating', 'Jml Produk']) 
+
+        st.divider()
+        st.header(f"📊 {active_title}")
+        
+        # --- HITUNG DATA AGREGAT ---
+        df_total = df.groupby(group_cols).agg(
+            num_total=(metric_col, 'sum'),
+            num_omzet=(omzet_col, 'sum'),
+            Frekuensi_Bulan=('Bulan', 'nunique'),
+            List_Bulan=('Bulan', lambda x: ', '.join(sorted(x.unique())))
+        ).reset_index()
+        
+        df_total = df_total.rename(columns={'num_total': 'Total Terjual', 'num_omzet': 'Total Omzet', 'Frekuensi_Bulan': 'Frekuensi Bulan', 'List_Bulan': 'List Bulan'})
+        df_total = df_total.sort_values('Total Terjual', ascending=False).reset_index(drop=True)
+
+        # Tampilkan Tab
+        tab1, tab2, tab3 = st.tabs(["🏆 Juara Umum", "💎 Konsistensi", "📅 Breakdown"])
+
+        with tab1:
+            st.subheader("🏆 Top Performance")
+            for idx, row in df_total.head(50).iterrows():
+                render_universal_card(row, "trend", label_metric="Total Terjual", label_omzet="Total Omzet")
+            
+            # --- DOWNLOAD BUTTONS DI SINI ---
+            st.divider()
+            c_csv, c_pdf = st.columns(2)
+            with c_csv:
+                csv_data = df_total.to_csv(index=False).encode('utf-8')
+                st.download_button("📥 Download Excel/CSV", csv_data, "trend_report.csv", "text/csv", use_container_width=True)
+            with c_pdf:
+                if st.button("📄 Generate PDF Report (Juara Umum)", key="pdf_trend"):
+                    with st.spinner("Sedang membuat PDF..."):
+                        pdf_bytes = generate_pdf_bytes(df_total.head(50), active_title, target_type)
+                        st.download_button("⬇️ Download PDF", pdf_bytes, "trend_report.pdf", "application/pdf", use_container_width=True)
+
+        with tab2:
+            st.subheader("💎 Tingkat Konsistensi")
+            freqs = sorted(df_total['Frekuensi Bulan'].unique(), reverse=True)
+            for freq in freqs:
+                subset = df_total[df_total['Frekuensi Bulan'] == freq].sort_values('Total Terjual', ascending=False).head(5)
+                with st.expander(f"🗓️ Muncul di {freq} Bulan ({len(subset)} Item)", expanded=(freq==freqs[0])):
+                    for idx, row in subset.iterrows():
+                        render_universal_card(row, "trend", label_metric="Total Terjual", label_omzet="Total Omzet")
+
+        with tab3:
+            st.subheader("📅 Kilas Balik Per Bulan")
+            months_avail = sorted(df['Bulan'].unique())
+            for bulan in months_avail:
+                df_bulan = df[df['Bulan'] == bulan].sort_values(metric_col, ascending=False).head(5)
+                if not df_bulan.empty:
+                    st.markdown(f"### 🗓️ {bulan}")
+                    for idx, row in df_bulan.iterrows():
+                        row_mod = row.copy()
+                        row_mod['Terjual Bulan Ini'] = row[metric_col]
+                        row_mod['Omzet Bulan Ini'] = row[omzet_col]
+                        render_universal_card(row_mod, "trend", label_metric="Terjual Bulan Ini", label_omzet="Omzet Bulan Ini")
+                    st.divider()
+
+    # 2. TAMPILAN MODE LAINNYA (SINGLE)
+    else:
+        st.divider()
+        st.subheader(active_title)
+        
+        for idx, row in df.iterrows():
+            if active_mode == "🏪 Toko Terlaris":
+                render_universal_card(row, "single", label_metric="num_terjual", label_omzet="num_omzet")
+            else:
+                render_universal_card(row, "single", label_metric="num_terjual_p", label_omzet="num_omzet_p")
+        
+        st.divider()
+        c_csv, c_pdf = st.columns(2)
+        with c_csv:
+            csv = df.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Download CSV", data=csv, file_name=f"data_fastmoss.csv", mime="text/csv", use_container_width=True)
+        with c_pdf:
+            if st.button("📄 Generate PDF Report", key="pdf_single"):
+                with st.spinner("Sedang menggambar PDF dari kartu produk..."):
+                    pdf_bytes = generate_pdf_bytes(df, active_title, target_type)
+                    st.download_button("⬇️ Download PDF", pdf_bytes, "laporan_produk.pdf", "application/pdf", use_container_width=True)
+
+else:
+    if not start_btn:
+        st.info("👈 Silakan konfigurasi di menu samping dan klik 'Mulai'.")
