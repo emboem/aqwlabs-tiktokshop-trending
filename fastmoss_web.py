@@ -18,8 +18,8 @@ HEADERS_CONFIG = {
     "lang": "ID_ID",
     "region": "ID",
     "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "fm-sign": "16fa6f79d7617ab63b9180aeb907b6bd", 
-    "cookie": "NEXT_LOCALE=id; region=ID; utm_country=ID; utm_south=google; utm_id=kw_id_0923_01; utm_lang=id; userTimeZone=Asia%2FJakarta; _tt_enable_cookie=1; _ttp=01KC38KWNN831BY9E87TZ33273_.tt.1; fd_tk=3e275cb3799bba9d7a56995ef346c97a; _uetsid=7ff5cb70d58111f0a836a985b4652589|124paud|2|g1q|0|2170; _uetvid=7ff62600d58111f0ac53af3c8f32e7e1|1q6zulx|1765341784970|9|1|bat.bing.com/p/insights/c/l"
+    "fm-sign": "11aafdba876439518ac6672cd5eb41ff", 
+    "cookie": "NEXT_LOCALE=id; utm_country=ID; utm_south=google; utm_id=kw_id_0923_01; utm_lang=id; fp_visid=0c428e01dea23acfe5daff8f5db0e849; _gcl_au=1.1.1091888018.1765341251; _ga=GA1.1.86921883.1765341251; gg_client_id=86921883.1765341251; _fbp=fb.1.1765341262233.460796550836126988; _tt_enable_cookie=1; _ttp=01KC38KWNN831BY9E87TZ33273_.tt.1; _gcl_gs=2.1.k1^$i1765345417^$u149463969; _gcl_aw=GCL.1765345424.Cj0KCQiArt_JBhCTARIsADQZaymphoxwEDrLZ6W9deQryISq4-Wxw86K2ANDrlGzlGLImN7OxvKDmxkaAk4VEALw_wcB; _ga_J8P3E5KDGJ=deleted; _clck=1vkm0hs^%^5E2^%^5Eg23^%^5E0^%^5E2170; region=ID; userTimeZone=Asia^%^2FJakarta; fd_tk=3f0f046b3d79c0db702ce4a0fc87a01c; _rdt_uuid=1765341252879.3992635e-f762-4357-93f5-b07da426c2bd; _rdt_em=:ee87ac9a321a7e5876fbfe9a521777e5ec1cfbb92410f51402f52971fece3701,3fc49119e3456ef63cd48e99e7b62cae90b3cb9d850e4b106fa7b5539833ca0c; _uetsid=f3a86550e00011f0a3537984a067c66f^|wcg1bs^|2^|g23^|0^|2183; _uetvid=7ff62600d58111f0ac53af3c8f32e7e1^|1lq9wth^|1766496323694^|8^|1^|bat.bing.com/p/insights/c/k"
 }
 
 try:
@@ -692,3 +692,4 @@ if st.session_state['scraped_data'] is not None:
 
 else:
     if not start_btn: st.info("👈 Silakan konfigurasi di menu samping dan klik 'Mulai'.")
+
