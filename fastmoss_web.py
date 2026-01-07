@@ -18,8 +18,8 @@ HEADERS_CONFIG = {
     "lang": "ID_ID",
     "region": "ID",
     "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "fm-sign": "a2931e9423c1d113fa167252fd4647be", 
-    "cookie": "NEXT_LOCALE=id; utm_country=ID; utm_south=google; utm_id=kw_id_0923_01; utm_lang=id; fp_visid=0c428e01dea23acfe5daff8f5db0e849; _gcl_au=1.1.1091888018.1765341251; _ga=GA1.1.86921883.1765341251; gg_client_id=86921883.1765341251; _fbp=fb.1.1765341262233.460796550836126988; _tt_enable_cookie=1; _ttp=01KC38KWNN831BY9E87TZ33273_.tt.1; _gcl_gs=2.1.k1$i1765345417$u149463969; _gcl_aw=GCL.1765345424.Cj0KCQiArt_JBhCTARIsADQZaymphoxwEDrLZ6W9deQryISq4-Wxw86K2ANDrlGzlGLImN7OxvKDmxkaAk4VEALw_wcB; _ga_J8P3E5KDGJ=deleted; region=ID; userTimeZone=Asia%2FJakarta; _clck=1vkm0hs%5E2%5Eg2b%5E0%5E2170; fd_tk=67eaef52771ce1d7a92349199807a8c2; _rdt_uuid=1765341252879.3992635e-f762-4357-93f5-b07da426c2bd; _rdt_em=:ee87ac9a321a7e5876fbfe9a521777e5ec1cfbb92410f51402f52971fece3701,3fc49119e3456ef63cd48e99e7b62cae90b3cb9d850e4b106fa7b5539833ca0c; _uetsid=025f45f0e5f611f08b53ddc106d85728|15pm7q1|2|g2b|0|2191; _uetvid=7ff62600d58111f0ac53af3c8f32e7e1|1p2yu3k|1767150547522|3|1|bat.bing.com/p/insights/c/a; _clsk=92vvqz%5E1767150547551%5E3%5E1%5Ewww.clarity.ms%2Feus-g%2Fcollect; ttcsid_CJMMQFRC77U1G7J3JGP0=1767150523035::rGVw4XStIQGgICT3RoS9.32.1767150550787.0; ttcsid=1767150523019::KterP8Ushj79AHceOpx7.32.1767150662371.0; ttcsid_CJOP1H3C77UDO397C3M0=1767150523036::h3paTSufSrVLq7wU9V_P.32.1767150662371.0; _ga_GD8ST04HB5=GS2.1.s1767150518$o20$g1$t1767150662$j60$l0$h477530009; _ga_J8P3E5KDGJ=GS2.1.s1767150518$o20$g1$t1767150662$j60$l0$h49429753"
+    "fm-sign": "dd81ea30936a095352c750cf804cdc97", 
+    "cookie": "NEXT_LOCALE=id; utm_country=ID; utm_south=google; utm_id=kw_id_0923_01; utm_lang=id; fp_visid=0c428e01dea23acfe5daff8f5db0e849; _gcl_au=1.1.1091888018.1765341251; _ga=GA1.1.86921883.1765341251; gg_client_id=86921883.1765341251; _fbp=fb.1.1765341262233.460796550836126988; _tt_enable_cookie=1; _ttp=01KC38KWNN831BY9E87TZ33273_.tt.1; _gcl_gs=2.1.k1$i1765345417$u149463969; _gcl_aw=GCL.1765345424.Cj0KCQiArt_JBhCTARIsADQZaymphoxwEDrLZ6W9deQryISq4-Wxw86K2ANDrlGzlGLImN7OxvKDmxkaAk4VEALw_wcB; _ga_J8P3E5KDGJ=deleted; fd_tk=67eaef52771ce1d7a92349199807a8c2; region=ID; userTimeZone=Asia%2FJakarta; _clck=1vkm0hs%5E2%5Eg2i%5E0%5E2170; _rdt_uuid=1765341252879.3992635e-f762-4357-93f5-b07da426c2bd; _rdt_em=:ee87ac9a321a7e5876fbfe9a521777e5ec1cfbb92410f51402f52971fece3701,3fc49119e3456ef63cd48e99e7b62cae90b3cb9d850e4b106fa7b5539833ca0c; _uetsid=02cf7100eb6e11f0a64baf0725e85a02|2wcs8d|2|g2i|0|2198; _uetvid=7ff62600d58111f0ac53af3c8f32e7e1|1xtm1lg|1767751846515|2|1|bat.bing.com/p/insights/c/k; _clsk=1o7c7sl%5E1767751846621%5E2%5E0%5Ewww.clarity.ms%2Feus2-e%2Fcollect; ttcsid_CJMMQFRC77U1G7J3JGP0=1767751840324::WS3lIqDrN9enasU2XnSy.38.1767751850751.0; ttcsid=1767751840320::38mwl8ixsi7KT5_Te1DV.38.1767751857295.0; ttcsid_CJOP1H3C77UDO397C3M0=1767751840325::8d3I1TysV1GS_rne0-6i.38.1767751857295.0; _ga_GD8ST04HB5=GS2.1.s1767751813$o29$g1$t1767751903$j41$l0$h1633698039; _ga_J8P3E5KDGJ=GS2.1.s1767751814$o29$g1$t1767751903$j41$l0$h912015828"
 }
 
 try:
@@ -692,6 +692,7 @@ if st.session_state['scraped_data'] is not None:
 
 else:
     if not start_btn: st.info("👈 Silakan konfigurasi di menu samping dan klik 'Mulai'.")
+
 
 
 
