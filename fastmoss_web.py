@@ -18,8 +18,8 @@ HEADERS_CONFIG = {
     "lang": "ID_ID",
     "region": "ID",
     "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "fm-sign": "dd81ea30936a095352c750cf804cdc97", 
-    "cookie": "NEXT_LOCALE=id; utm_country=ID; utm_south=google; utm_id=kw_id_0923_01; utm_lang=id; fp_visid=0c428e01dea23acfe5daff8f5db0e849; _gcl_au=1.1.1091888018.1765341251; _ga=GA1.1.86921883.1765341251; gg_client_id=86921883.1765341251; _fbp=fb.1.1765341262233.460796550836126988; _tt_enable_cookie=1; _ttp=01KC38KWNN831BY9E87TZ33273_.tt.1; _gcl_gs=2.1.k1$i1765345417$u149463969; _gcl_aw=GCL.1765345424.Cj0KCQiArt_JBhCTARIsADQZaymphoxwEDrLZ6W9deQryISq4-Wxw86K2ANDrlGzlGLImN7OxvKDmxkaAk4VEALw_wcB; _ga_J8P3E5KDGJ=deleted; fd_tk=67eaef52771ce1d7a92349199807a8c2; region=ID; userTimeZone=Asia%2FJakarta; _clck=1vkm0hs%5E2%5Eg2i%5E0%5E2170; _rdt_uuid=1765341252879.3992635e-f762-4357-93f5-b07da426c2bd; _rdt_em=:ee87ac9a321a7e5876fbfe9a521777e5ec1cfbb92410f51402f52971fece3701,3fc49119e3456ef63cd48e99e7b62cae90b3cb9d850e4b106fa7b5539833ca0c; _uetsid=02cf7100eb6e11f0a64baf0725e85a02|2wcs8d|2|g2i|0|2198; _uetvid=7ff62600d58111f0ac53af3c8f32e7e1|1xtm1lg|1767751846515|2|1|bat.bing.com/p/insights/c/k; _clsk=1o7c7sl%5E1767751846621%5E2%5E0%5Ewww.clarity.ms%2Feus2-e%2Fcollect; ttcsid_CJMMQFRC77U1G7J3JGP0=1767751840324::WS3lIqDrN9enasU2XnSy.38.1767751850751.0; ttcsid=1767751840320::38mwl8ixsi7KT5_Te1DV.38.1767751857295.0; ttcsid_CJOP1H3C77UDO397C3M0=1767751840325::8d3I1TysV1GS_rne0-6i.38.1767751857295.0; _ga_GD8ST04HB5=GS2.1.s1767751813$o29$g1$t1767751903$j41$l0$h1633698039; _ga_J8P3E5KDGJ=GS2.1.s1767751814$o29$g1$t1767751903$j41$l0$h912015828"
+    "fm-sign": "460933c2c0474dcd904d6302b1b740ac", 
+    "cookie": "NEXT_LOCALE=id; utm_country=ID; utm_south=google; utm_id=kw_id_0923_01; utm_lang=id; _gcl_gs=2.1.k1$i1767839523$u149463969; _ga=GA1.1.137069787.1767839529; gg_client_id=137069787.1767839529; _tt_enable_cookie=1; _ttp=01KEDQ5CA47F0XKH6WQMYR6ETG_.tt.1; _fbp=fb.1.1767839543648.436002804165244029; _gcl_au=1.1.722438717.1767839528.1108035289.1767839545.1767839545; fd_tk=cbd07a71719cdadf5dfa7a1ec99573ca; _gcl_aw=GCL.1767886374.Cj0KCQiApfjKBhC0ARIsAMiR_ItVoWcCT0-8IXmNbGSzwxe56oV1xUQKSwHA4oKgP_RRa6QTxuOw2hgaAn0CEALw_wcB; region=ID; fp_visid=912b5bfd6424bbde69459cee5dc9fda0; userTimeZone=Asia%2FJakarta; _clck=1inu6hs%5E2%5Eg2w%5E0%5E2199; _rdt_uuid=1767839531554.f0dba003-6374-4147-bb5c-a44f4bd532c6; _rdt_em=:74e797a5ca36440a321cf4447174848028611111c855d8bf6c0eed8ea2076442; _uetsid=b9df96f0f67d11f0bcd5f3aab689a5a1|18454bd|2|g2w|0|2212; _uetvid=4367c4c0ec3a11f08d15afbc97c7abd3|18s7qtn|1768968305038|4|1|bat.bing.com/p/insights/c/d; ttcsid_CJMMQFRC77U1G7J3JGP0=1768968025605::Z53VXmt0tUmldyswoGyJ.23.1768968305994.0; ttcsid=1768968023250::a_xVoWZ2bPy30DPhwiCb.23.1768968305996.0; ttcsid_CJOP1H3C77UDO397C3M0=1768968023250::CULPZlr_axZP0Qsr1LdJ.23.1768968305996.0; _ga_GD8ST04HB5=GS2.1.s1768968110$o37$g1$t1768968311$j54$l0$h966233688; _ga_J8P3E5KDGJ=GS2.1.s1768968114$o37$g1$t1768968311$j54$l0$h741281003"
 }
 
 try:
@@ -692,6 +692,7 @@ if st.session_state['scraped_data'] is not None:
 
 else:
     if not start_btn: st.info("👈 Silakan konfigurasi di menu samping dan klik 'Mulai'.")
+
 
 
 
