@@ -24,6 +24,7 @@ _OVERVIEW = "/api/analysis/GoodCategory/marketOverview"
 _BASE = "/api/analysis/GoodCategory/base"
 _CHART = "/api/analysis/GoodCategory/salesChart"
 _PRICE = "/api/analysis/GoodCategory/priceDistribution"
+_V2 = "/api/analysis/V2/"
 
 PAGES = [
     {"key": "pulse", "title": "Denyut Pasar", "referer": "/id/market/market-pulse",
@@ -80,14 +81,37 @@ PAGES = [
      "desc": "Analisis mendalam pasar: tren omzet, sebaran kategori, rentang harga, kreator, dan produk teratas.",
      "controls": [PERIOD, CATEGORY],
      "sections": [
-         Section("overview", "Ikhtisar pasar", "/api/analysis/V2/overview", "kpi"),
-         Section("saleTrend", "Tren penjualan", "/api/analysis/V2/saleTrend", "kpi"),
-         Section("catDist", "Sebaran kategori", "/api/analysis/V2/categoryDistribution", "kpi"),
-         Section("saleRange", "Rentang harga laris", "/api/analysis/V2/saleRange", "kpi"),
-         Section("authorRect", "Peta kreator", "/api/analysis/V2/authorRect", "kpi"),
-         Section("top3", "3 produk teratas", "/api/analysis/V2/top3Goods", "kpi"),
-         Section("topGoods", "Produk teratas", "/api/analysis/V2/topGoodList", "table", root="list"),
-         Section("priceList", "Daftar harga", "/api/analysis/V2/priceList", "kpi"),
+         Section("overview", "Ikhtisar pasar", _V2 + "overview", "kpi", root="base",
+                 fields=[N("Terjual", "category_sold_count"), T("Terjual vs periode lalu", "category_sold_count_mom_rate"),
+                         M("Omzet", "category_sale_amount"), M("Omzet periode lalu", "last_sale_amount"),
+                         N("Produk sedang dijual", "onsale_product_count"),
+                         T("Produk dijual vs periode lalu", "onsale_product_count_mom_rate"),
+                         N("Produk baru", "new_product_count"), T("Produk baru vs periode lalu", "new_product_count_mom_rate"),
+                         M("Harga jual rata-rata", "avg_category_sale_price_amount"),
+                         T("Harga rata-rata vs periode lalu", "avg_category_sale_price_mom_rate")]),
+         Section("overviewTrend", "Tren harian", _V2 + "overview", "line", root="list", x="dt",
+                 series=[N("Terjual", "inc_sold_count"), M("Omzet", "test.cur_sale_amount"),
+                         N("Produk terjual", "test.cur_sold_product_count"), N("Produk baru", "test.cur_new_product_count")],
+                 wide=True),
+         Section("saleRange", "Saluran penjualan (unit terjual)", _V2 + "saleRange", "kpi", root="sale_type",
+                 fields=[N("Total terjual", "sold.total_sale_count"), T("Total vs periode lalu", "mom.total_sale_count_mom_rate"),
+                         N("Lewat kartu produk", "current.product_card_sale_count"),
+                         T("Porsi kartu produk", "current.product_card_sale_count_rate"),
+                         N("Lewat video", "current.video_sale_count"), T("Porsi video", "current.video_sale_count_rate"),
+                         N("Lewat LIVE", "current.live_sale_count"), T("Porsi LIVE", "current.live_sale_count_rate")]),
+         Section("saleTrend", "Unit terjual per rentang harga", _V2 + "saleTrend", "bars", root="cur_trend.sales",
+                 x="range", series=[N("Terjual", "value")]),
+         Section("catDist", "Sebaran omzet per kategori", _V2 + "categoryDistribution", "table", root="dots",
+                 fields=[Col("Kategori", "entity", key="category_name", sub="region_name"),
+                         M("Omzet", "cur_sale_amount"), M("Omzet periode lalu", "last_sale_amount"),
+                         T("Perubahan", "category_sale_amount_mom_rate")], wide=True),
+         Section("authorRect", "Kreator per jumlah pengikut", _V2 + "authorRect", "table", root="list",
+                 fields=[T("Pengikut", "follower_level"), N("Kreator", "author_count"), T("Porsi kreator", "author_count_rate"),
+                         M("Omzet", "sale_amount"), N("Terjual", "sold_count"), T("Porsi terjual", "sold_count_rate"),
+                         N("Video", "video_count"), N("LIVE", "live_count"),
+                         M("Omzet rata-rata/kreator", "avg_author_sale_amount")], wide=True),
+         Section("top3", "3 produk teratas", _V2 + "top3Goods", "table", root="list"),
+         Section("topGoods", "Produk teratas", _V2 + "topGoodList", "table", root="list"),
      ]},
 ]
 PAGE_BY_KEY = {p["key"]: p for p in PAGES}

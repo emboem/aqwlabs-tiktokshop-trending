@@ -49,6 +49,8 @@ def cell_value(col: Col, row: dict):
         return _num(v)
     if t == "tags":
         return ", ".join(str(x) for x in v) if isinstance(v, list) else str(v)
+    if t == "props":        # varian SKU: [{prop_name, prop_value}, ...] -> "Hitam / M"
+        return " / ".join(str(p.get("prop_value", "")) for p in v if isinstance(p, dict)) if isinstance(v, list) else str(v)
     if t == "bool":
         return "Ya" if str(v) in ("1", "True", "true") else "Tidak"
     if t == "ts":

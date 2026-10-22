@@ -191,9 +191,9 @@ table.data tr:nth-child(3) td.rank { color: #c7773b; }
 .grid > * { min-width: 0; }   /* tabel lebar tak boleh melebarkan kolom grid */
 .grid.k4 { grid-template-columns: repeat(auto-fill, minmax(min(190px, 100%), 1fr)); }
 .grid.c2 { grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); }
-.kpi { padding: 14px 16px; }
+.kpi { padding: 14px 16px; min-width: 0; }
 .kpi .l { font-size: 12px; color: var(--muted); font-weight: 600; }
-.kpi .v { font-size: 21px; font-weight: 800; margin-top: 4px; letter-spacing: -.3px; }
+.kpi .v { font-size: 21px; font-weight: 800; margin-top: 4px; letter-spacing: -.3px; overflow-wrap: anywhere; }
 .kpi .d { font-size: 12px; margin-top: 2px; }
 .hero { display: flex; gap: 18px; align-items: center; padding: 20px; flex-wrap: wrap; }
 .hero img { width: 92px; height: 92px; border-radius: 16px; object-fit: cover; border: 1px solid var(--line); background: var(--panel-2); }

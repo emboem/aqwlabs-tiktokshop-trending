@@ -17,7 +17,7 @@ from typing import Any
 @dataclass
 class Col:
     label: str
-    type: str                 # entity | num | money | pct | text | tags | date | ts | dur | price | spark | bool
+    type: str                 # entity | num | money | pct | text | tags | date | ts | dur | price | spark | bool | props
     key: str = ""             # path bertitik, mis. "shop_info.name"
     img: str = ""             # entity: path gambar
     sub: str = ""             # entity: baris kecil di bawah judul

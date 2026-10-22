@@ -15,6 +15,8 @@ def dig(obj: Any, path: str) -> Any:
     for part in path.split("."):
         if isinstance(cur, dict):
             cur = cur.get(part)
+        elif isinstance(cur, list) and part.isdigit():          # "cover_list.0"
+            cur = cur[int(part)] if int(part) < len(cur) else None
         else:
             return None
     return cur

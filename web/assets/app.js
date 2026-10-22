@@ -118,6 +118,40 @@ function prettyKey(k) {
   return String(k).replace(/_/g, " ").replace(/\b(cnt|count)\b/g, "jumlah").replace(/^./, (c) => c.toUpperCase());
 }
 
+// Bagian tanpa definisi kolom digambar otomatis: buang field teknis (ID, gambar, tautan, kode mata uang)
+// supaya tidak muncul sebagai "angka" (mis. UID 7252574471821984774 -> "7.252.574,47 T").
+const NOISE_KEY = /(^|_)(id|uid|sid|ids|region|currency|currency_unit|currency_code|avatar|cover|img|image|icon|url|oss|uri|sort)$|^is_|^(test|header)$/i;
+function noiseValue(v) {
+  return typeof v === "string" && (/^https?:\/\//.test(v) || /~tplv|^tt_|\/tos-/.test(v) || /^\d{15,}$/.test(v));
+}
+function autoFields(obj, limit) {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return [];
+  return Object.entries(obj)
+    .filter(([k, v]) => !k.endsWith("_show") && v != null && v !== "" && typeof v !== "object" && typeof v !== "boolean"
+      && !NOISE_KEY.test(k) && !noiseValue(v))
+    .slice(0, limit)
+    .map(([k, v]) => ({ k, label: prettyKey(k), show: obj[`${k}_show`], num: toNum(v) != null }));
+}
+
+// Label grafik yang dikirim FastMoss sebagai kunci terjemahan (mis. "common.goods.product_card").
+const LABEL_ID = {
+  product_card: "Kartu produk", shop_account: "Akun toko", affiliate: "Afiliasi (kreator)",
+  adTraffic: "Trafik iklan", otherTraffic: "Trafik organik", video: "Video", live: "LIVE", others: "Lainnya", other: "Lainnya",
+  female: "Perempuan", male: "Laki-laki", unknown: "Tidak diketahui",
+  early_morning: "Dini hari", morning: "Pagi", afternoon: "Siang–sore", evening: "Malam", night: "Malam",
+  "WEST JAVA": "Jawa Barat", "EAST JAVA": "Jawa Timur", "CENTRAL JAVA": "Jawa Tengah", JAKARTA: "DKI Jakarta",
+  BANTEN: "Banten", YOGYAKARTA: "DI Yogyakarta", "NORTH SUMATRA": "Sumatera Utara", "SOUTH SUMATRA": "Sumatera Selatan",
+  "WEST SUMATRA": "Sumatera Barat", RIAU: "Riau", LAMPUNG: "Lampung", "SOUTH SULAWESI": "Sulawesi Selatan",
+  BALI: "Bali", "EAST KALIMANTAN": "Kalimantan Timur", "WEST KALIMANTAN": "Kalimantan Barat",
+  "SOUTH KALIMANTAN": "Kalimantan Selatan", ACEH: "Aceh",
+};
+function labelText(v) {
+  let s = Array.isArray(v) ? v.join(", ") : String(v ?? "");
+  s = s.replace(/\.name$/, "");
+  if (/^[a-z]+(\.[A-Za-z_]+)+$/.test(s)) s = s.split(".").pop();
+  return LABEL_ID[s] || LABEL_ID[s.toUpperCase()] || s;
+}
+
 const DETAIL_KINDS = new Set(["product", "shop", "creator", "live", "video"]);
 const ROUND = new Set(["creator"]);
 
@@ -160,12 +194,14 @@ function cell(col, row) {
     case "dur": return fmtDur(v);
     case "bool": return String(v) === "1" || v === true || String(v) === "true" ? `<span class="pill brand">Ya</span>` : "–";
     case "spark": return spark(dig(row, col.key), col.x, col.y);
+    case "props": return Array.isArray(v) && v.length
+      ? esc(v.map((p) => p?.prop_value ?? p?.value ?? p).filter((x) => !blank(x)).join(" / ")) : "–";
     default: if (typeof v === "string" && pctText(v)) return pctText(v);
       if (typeof v === "string" && CJK_UNIT.test(v)) return esc(cjkUnits(v));
       return blank(v) ? "–" : esc(Array.isArray(v) ? v.join(", ") : (typeof v === "object" ? JSON.stringify(v) : v));
   }
 }
-const isLeft = (c) => ["entity", "tags", "text", "price"].includes(c.type);
+const isLeft = (c) => ["entity", "tags", "text", "price", "props"].includes(c.type);
 
 function sortValue(col, row) {
   const v = dig(row, col.key);
@@ -214,8 +250,7 @@ function mountTable(el, cols, rows, opt = {}) {
 
 function autoCols(rows) {
   if (!rows || !rows.length) return [];
-  return Object.entries(rows[0]).filter(([k, v]) => !k.endsWith("_show") && (v == null || typeof v !== "object"))
-    .slice(0, 14).map(([k, v]) => ({ label: prettyKey(k), type: toNum(v) != null ? "num" : "text", key: k }));
+  return autoFields(rows[0], 14).map((f) => ({ label: f.label, type: f.num ? "num" : "text", key: f.k }));
 }
 
 // ============================================================ banner status
@@ -760,14 +795,14 @@ function barChart(box, rows, x, series) {
     const v = dig(r, series[0].key);
     return toNum(v) ?? (typeof v === "string" ? parseFloat(v.replace("%", "").replace(",", ".")) || 0 : 0);
   };
-  const label = (r) => { const v = dig(r, x); return Array.isArray(v) ? v.join(", ") : String(v ?? ""); };
+  const label = (r) => labelText(dig(r, x));
   if (!window.Chart || !rows.length) return fallbackTable(box, rows, [{ label: "Label", type: "text", key: x }, ...series]);
   const ink = chartInk();
   const color = chartColor();
   box.innerHTML = `<div class="chart-box" style="height:${Math.max(160, rows.length * 34 + 40)}px"><canvas></canvas></div>`;
   const chart = new Chart($("canvas", box), {
     type: "bar",
-    data: { labels: rows.map((r) => shortLabel(label(r).replace(/\.name$/, ""))), datasets: [{ label: series[0].label, data: rows.map(val), backgroundColor: color, borderRadius: 4, borderSkipped: "start", barThickness: 18 }] },
+    data: { labels: rows.map((r) => shortLabel(label(r))), datasets: [{ label: series[0].label, data: rows.map(val), backgroundColor: color, borderRadius: 4, borderSkipped: "start", barThickness: 18 }] },
     options: {
       indexAxis: "y", responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${series[0].label}: ${series[0].type === "money" ? cur() : ""}${nfF.format(c.parsed.x)}` } } },
@@ -787,9 +822,9 @@ function kpiHTML(fields, data) {
   if (!data || typeof data !== "object") return `<div class="empty">Tidak ada data.</div>`;
   let items = fields.map((f) => ({ l: f.label, v: cell(f, data) }));
   if (!items.length) {
-    items = Object.entries(data).filter(([k, v]) => !k.endsWith("_show") && v != null && typeof v !== "object")
-      .slice(0, 16).map(([k, v]) => ({ l: prettyKey(k), v: fmtNum(v) }));
+    items = autoFields(data, 16).map((f) => ({ l: f.label, v: !blank(f.show) ? esc(f.show) : f.num ? fmtNum(data[f.k]) : esc(data[f.k]) }));
   }
+  if (!items.length) return `<div class="empty">Tidak ada data.</div>`;
   return `<div class="grid k4">${items.map((i) => `<div class="kpi card" style="box-shadow:none"><div class="l">${esc(i.l)}</div><div class="v num">${i.v}</div></div>`).join("")}</div>`;
 }
 
