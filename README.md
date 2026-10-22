@@ -61,7 +61,7 @@ tests/                 pytest
    pip install -r requirements.txt
    uvicorn app.main:app --host 127.0.0.1 --port 8000
    ```
-4. Buka <http://localhost:8000>.
+4. Browser terbuka otomatis ke <http://localhost:8000>. Alamat `0.0.0.0:8000` yang muncul di log server **bukan** alamat untuk dibuka di browser.
 
 ## Akun & cookie FastMoss (multi-akun)
 
