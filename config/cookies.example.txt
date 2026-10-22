@@ -1,11 +1,13 @@
 # ================================================================
-#  CONTOH file cookie FastMoss.
-#  Salin menjadi  config/cookies.txt  lalu tempel cookie asli di bawah.
-#  (cookies.txt sudah diabaikan git — aman, tidak ikut ter-commit.)
+#  CONTOH file cookie FastMoss — SATU file = SATU akun.
+#  Salin menjadi  config/cookies_akun_1.txt  (akun kedua: cookies_akun_2.txt, dst.)
+#  lalu tempel cookie asli di bawah. Semua cookies_akun_*.txt diabaikan git.
 # ================================================================
-#  Format yang diterima (pilih salah satu):
+#  Baris "# nama:" = nama akun yang tampil di pilihan akun aplikasi.
+#  Format cookie yang diterima (pilih salah satu):
 #   - isi cookie mentah:   fd_tk=xxxx; NEXT_LOCALE=id; ...
 #   - satu baris header:   Cookie: fd_tk=xxxx; ...
 #   - perintah cURL utuh hasil "Copy as cURL" dari DevTools
 # ----------------------------------------------------------------
+# nama: Akun Contoh
 fd_tk=ISI_DENGAN_COOKIE_ASLI; NEXT_LOCALE=id

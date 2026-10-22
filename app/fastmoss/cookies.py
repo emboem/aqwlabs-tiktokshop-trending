@@ -1,10 +1,10 @@
-"""Penyimpanan cookie FastMoss di SATU file khusus (default ``config/cookies.txt``).
+"""Penyimpanan cookie FastMoss: SATU file khusus per akun (``config/cookies_akun_<N>.txt``).
 
 Isi file boleh berupa salah satu dari:
   * string cookie biasa      : ``fd_tk=...; region=ID; ...``
   * baris header             : ``Cookie: fd_tk=...``
   * perintah cURL utuh       : hasil "Copy as cURL" dari DevTools (bash maupun cmd/Windows)
-Baris yang diawali ``#`` dianggap komentar.
+Baris yang diawali ``#`` dianggap komentar, kecuali ``# nama: ...`` = nama akun yang tampil di aplikasi.
 
 Nilai cookie TIDAK PERNAH dikirim balik ke browser; halaman Pengaturan hanya melihat statusnya.
 """
@@ -27,12 +27,14 @@ TEMPLATE_HEADER = """\
 #   3. Salin nilai header "cookie" (atau klik kanan > Copy as cURL).
 #   4. Tempel di bawah garis ini (menggantikan isi lama), lalu simpan.
 #  Perubahan langsung terbaca tanpa restart aplikasi.
-#  Bisa juga lewat menu "Pengaturan Cookie" di aplikasi.
+#  Bisa juga lewat menu "Pengaturan & Cookie" di aplikasi.
+#  Baris "# nama:" = nama akun yang tampil di pilihan akun aplikasi.
 #  JANGAN bagikan / commit file ini — isinya kunci akun FastMoss.
 # ----------------------------------------------------------------
 """
 
 SESSION_KEY = "fd_tk"
+LABEL_RE = re.compile(r"^[ \t]*#[ \t]*nama[ \t]*:[ \t]*(.*?)[ \t]*$", re.I | re.M)
 
 
 @dataclass
@@ -42,6 +44,7 @@ class CookieStatus:
     length: int
     updated_at: str | None
     path: str
+    label: str = ""
 
     def as_dict(self) -> dict:
         return self.__dict__.copy()
@@ -50,6 +53,12 @@ class CookieStatus:
 def _unescape_cmd(s: str) -> str:
     # "Copy as cURL (cmd)" di Windows memakai ^ sebagai escape.
     return re.sub(r"\^(.)", r"\1", s)
+
+
+def parse_label(text: str) -> str:
+    """Nama akun dari baris ``# nama: ...`` (kosong bila tidak ada)."""
+    m = LABEL_RE.search(text or "")
+    return m.group(1).strip()[:60] if m else ""
 
 
 def parse_cookie_text(text: str) -> str:
@@ -97,17 +106,23 @@ class CookieStore:
         self.path = Path(path)
         self._mtime: float | None = None
         self._cookie = ""
+        self._label = ""
 
     def get(self) -> str:
         try:
             mtime = self.path.stat().st_mtime
         except FileNotFoundError:
-            self._mtime, self._cookie = None, ""
+            self._mtime, self._cookie, self._label = None, "", ""
             return ""
         if mtime != self._mtime:
-            self._cookie = parse_cookie_text(self.path.read_text(encoding="utf-8", errors="replace"))
+            text = self.path.read_text(encoding="utf-8", errors="replace")
+            self._cookie, self._label = parse_cookie_text(text), parse_label(text)
             self._mtime = mtime
         return self._cookie
+
+    def label(self) -> str:
+        self.get()
+        return self._label
 
     def status(self) -> CookieStatus:
         cookie = self.get()
@@ -120,22 +135,36 @@ class CookieStore:
             length=len(cookie),
             updated_at=updated,
             path=str(self.path),
+            label=self._label,
         )
 
-    def save(self, text: str) -> str:
-        """Simpan cookie baru (atomik: tulis file sementara lalu ganti). Kembalikan cookie hasil parse."""
+    def save(self, text: str, label: str | None = None) -> str:
+        """Simpan cookie baru (atomik: tulis file sementara lalu ganti). Kembalikan cookie hasil parse.
+
+        Nama akun lama dipertahankan kecuali ``label`` diisi."""
         cookie = parse_cookie_text(text)
         if not cookie:
             raise ValueError("Cookie tidak terbaca. Tempel string cookie, header 'Cookie:', atau perintah cURL.")
+        self.write(self.label() if label is None else label, cookie)
+        return cookie
+
+    def set_label(self, label: str) -> None:
+        """Ganti nama akun tanpa menyentuh cookie-nya."""
+        self.write(label, self.get())
+
+    def write(self, label: str, cookie: str = "") -> None:
+        """Tulis file akun (template + ``# nama:`` + cookie) secara atomik."""
+        label = " ".join((label or "").split())[:60]
         self.path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(prefix=".cookies-", dir=str(self.path.parent))
         try:
             with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(TEMPLATE_HEADER)
-                fh.write(cookie + "\n")
+                fh.write(f"# nama: {label}\n")
+                if cookie:
+                    fh.write(cookie + "\n")
             os.replace(tmp, self.path)
         finally:
             if os.path.exists(tmp):
                 os.unlink(tmp)
         self._mtime = None
-        return cookie

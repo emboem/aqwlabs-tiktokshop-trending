@@ -12,8 +12,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import settings
+from .accounts import AccountMiddleware, registry
 from .routes import api, export
-from .services import client
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -24,11 +24,15 @@ WEB = settings.ROOT / "web"
 async def lifespan(_: FastAPI):
     if settings.APP_PASSWORD and settings.SECRET_KEY == "ganti-kunci-rahasia-ini":
         logging.getLogger("app").warning("SECRET_KEY masih bawaan — isi SECRET_KEY di .env sebelum disebar ke tim!")
+    registry.migrate_legacy()
+    if not registry.ids():
+        logging.getLogger("app").warning("Belum ada file akun di %s (cookies_akun_1.txt, ...).", settings.COOKIE_DIR)
     yield
-    await client.close()
+    await registry.close()
 
 
 app = FastAPI(title="FastMoss Lite", version="2.0.0", lifespan=lifespan, docs_url=None, redoc_url=None)
+app.add_middleware(AccountMiddleware)
 app.include_router(api.router)
 app.include_router(export.router)
 app.mount("/assets", StaticFiles(directory=WEB / "assets"), name="assets")

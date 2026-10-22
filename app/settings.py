@@ -36,8 +36,11 @@ def _float(name: str, default: float) -> float:
         return default
 
 
-# Lokasi file cookie FastMoss. Ganti cookie = edit file ini (atau lewat halaman Pengaturan).
-COOKIE_FILE = Path(os.environ.get("FM_COOKIE_FILE", ROOT / "config" / "cookies.txt"))
+# Folder cookie FastMoss. SATU file = SATU akun: config/cookies_akun_1.txt, cookies_akun_2.txt, dst.
+# Ganti cookie = edit file akun itu (atau lewat halaman Pengaturan). Tiap pengguna memilih akunnya sendiri.
+COOKIE_DIR = Path(os.environ.get("FM_COOKIE_DIR", ROOT / "config"))
+# Akun bawaan bagi pengguna yang belum memilih (nomor akun, mis. "1"). Kosong = akun nomor terkecil.
+DEFAULT_ACCOUNT = os.environ.get("FM_DEFAULT_ACCOUNT", "").strip()
 
 # Kata sandi tim untuk masuk ke aplikasi. Kosong = tanpa login (hanya untuk pemakaian lokal!).
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "")

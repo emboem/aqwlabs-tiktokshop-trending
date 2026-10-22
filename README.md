@@ -30,6 +30,7 @@ Fitur lain:
 - Pilihan **negara** (Indonesia, Malaysia, Thailand, Vietnam, Filipina, AS, dan lainnya). Mata uang menyesuaikan.
 - Mode **terang/gelap**, nyaman di HP.
 - Ekspor **Excel / CSV / PDF** di setiap tabel.
+- **Multi-akun**: pasang beberapa akun FastMoss (mis. gratis + berlangganan), tiap orang memilih akunnya sendiri.
 - Login tim dengan kata sandi, dan kata sandi admin terpisah untuk mengganti cookie.
 
 ## Struktur
@@ -39,6 +40,7 @@ app/
   fastmoss/signer.py   tanda tangan fm-sign / fm-sig (Python murni, tanpa browser)
   fastmoss/cookies.py  baca/tulis file cookie (format mentah, header, atau cURL)
   fastmoss/client.py   klien HTTP: jeda antar-request, retry, cache, deteksi "terkunci"
+  accounts.py          multi-akun: satu file cookie = satu akun, pilihan akun per request
   catalog.py           definisi semua menu daftar (kolom, filter, urutan)
   details.py           definisi halaman detail produk/toko/kreator/LIVE/video
   market.py            halaman Tren Pasar
@@ -46,14 +48,14 @@ app/
   routes/export.py     ekspor Excel/CSV/PDF
   auth.py, settings.py login tim & konfigurasi
 web/                   tampilan (HTML + CSS + JS, tanpa build)
-config/cookies.txt     ← TEMPAT COOKIE (tidak ikut git)
+config/cookies_akun_N.txt  ← TEMPAT COOKIE, satu file per akun (tidak ikut git)
 tests/                 pytest
 ```
 
 ## Menjalankan di komputer sendiri
 
 1. Pasang Python 3.10 atau lebih baru.
-2. Isi cookie (lihat bagian berikut).
+2. Isi cookie akun (lihat bagian *Akun & cookie FastMoss*).
 3. Klik dua kali **`run.bat`**, atau jalankan:
    ```bash
    pip install -r requirements.txt
@@ -61,25 +63,44 @@ tests/                 pytest
    ```
 4. Buka <http://localhost:8000>.
 
-## Mengganti cookie FastMoss
+## Akun & cookie FastMoss (multi-akun)
 
-Cookie hanya ada di **satu tempat**: `config/cookies.txt`. Ada dua cara menggantinya:
+Satu akun FastMoss = **satu file** di folder `config/`:
 
-**A. Lewat aplikasi (paling mudah).** Buka menu **Pengaturan & Cookie**, tempel cURL atau cookie, lalu klik Simpan.
-Langkah ini butuh kata sandi admin kalau login diaktifkan.
+```
+config/cookies_akun_1.txt   ← mis. akun gratis
+config/cookies_akun_2.txt   ← mis. akun berlangganan
+config/cookies_akun_3.txt   ← dst. (nomor bebas, urut dari kecil)
+```
 
-**B. Edit file.** Salin `config/cookies.example.txt` menjadi `config/cookies.txt`, lalu tempel salah satu format ini:
-- isi cookie mentah: `fd_tk=...; NEXT_LOCALE=id; ...`
-- satu baris header: `Cookie: fd_tk=...; ...`
-- perintah cURL utuh
+Baris `# nama: ...` di dalam file adalah nama akun yang tampil di aplikasi. Tiap akun punya cache dan status paket
+sendiri, jadi data akun gratis dan akun berlangganan tidak tercampur.
 
-Cara mengambilnya: login di fastmoss.com, buka DevTools (F12) lalu tab **Network**, muat ulang halaman,
-klik kanan salah satu request `/api/...`, lalu pilih **Copy → Copy as cURL**.
+**Memilih akun.** Kalau ada 2 akun atau lebih, di bilah atas muncul pilihan akun. Setiap orang memilih sendiri,
+dan pilihannya disimpan di browser masing-masing, jadi tidak mengubah pilihan anggota tim lain.
+Yang belum memilih memakai `FM_DEFAULT_ACCOUNT` (atau akun bernomor terkecil).
+
+**Mengisi / mengganti cookie** (dua cara):
+
+- **A. Lewat aplikasi (paling mudah).** Buka **Pengaturan & Cookie** → pada tabel akun klik **Ubah** → tempel cURL atau cookie →
+  **Simpan & uji**. Tombol **+ Tambah slot akun** membuat file akun baru. Butuh kata sandi admin kalau login diaktifkan.
+- **B. Edit file.** Buka `config/cookies_akun_N.txt` (atau salin `config/cookies.example.txt` dengan nama itu), lalu tempel
+  di bawah baris `# nama:` salah satu format ini:
+  - isi cookie mentah: `fd_tk=...; NEXT_LOCALE=id; ...`
+  - satu baris header: `Cookie: fd_tk=...; ...`
+  - perintah cURL utuh
+
+Cara mengambil cookie: login di fastmoss.com dengan akun yang mau dipasang, buka DevTools (F12) lalu tab **Network**,
+muat ulang halaman, klik kanan salah satu request `/api/...`, lalu pilih **Copy → Copy as cURL**.
 
 Perubahan berlaku **tanpa restart**. File dibaca ulang setiap kali isinya berubah.
-`config/cookies.txt` sudah masuk `.gitignore`, jadi tidak akan ikut ter-commit.
+Semua `config/cookies*.txt` sudah masuk `.gitignore` (kecuali contoh), jadi tidak akan ikut ter-commit.
+Nilai cookie tidak pernah dikirim ke browser; halaman Pengaturan hanya menampilkan statusnya.
 
-Kalau muncul pesan *"cookie kedaluwarsa / belum login"*, cookie perlu diganti dengan yang baru.
+Dari versi sebelumnya (satu file `config/cookies.txt`): saat aplikasi dijalankan, file itu otomatis dipindah
+menjadi `config/cookies_akun_1.txt`.
+
+Kalau muncul pesan *"cookie kedaluwarsa / belum login"*, cookie akun itu perlu diganti dengan yang baru.
 
 ## Menyebarkan ke tim (deploy)
 
@@ -93,13 +114,14 @@ Kalau muncul pesan *"cookie kedaluwarsa / belum login"*, cookie perlu diganti de
    docker run -d --name fastmoss-lite -p 8000:8000 --env-file .env \
      -v $(pwd)/config:/app/config fastmoss-lite
    ```
-   Folder `config/` dipasang sebagai volume, jadi cookie tetap ada saat container diperbarui
-   dan tetap bisa diganti dari halaman Pengaturan.
+   Folder `config/` dipasang sebagai volume, jadi semua file akun tetap ada saat container diperbarui
+   dan tetap bisa diganti / ditambah dari halaman Pengaturan.
 3. Pasang di belakang **reverse proxy HTTPS** (Caddy, Nginx, atau Cloudflare Tunnel). Jangan buka port 8000 langsung ke internet tanpa HTTPS.
 4. Cek kesehatan server: `GET /healthz`.
 
 Pengaturan lain (opsional, lewat `.env`): `FM_REGION`, `FM_MIN_INTERVAL` (jeda antar-request, detik),
-`FM_CACHE_TTL` (lama cache, detik), `FM_FREE_ROW_LIMIT`, `FM_EXPORT_MAX_ROWS`, `FM_COOKIE_FILE`.
+`FM_CACHE_TTL` (lama cache, detik), `FM_FREE_ROW_LIMIT`, `FM_EXPORT_MAX_ROWS`,
+`FM_COOKIE_DIR` (folder file akun, bawaan `config`), `FM_DEFAULT_ACCOUNT` (akun bawaan, mis. `1`).
 
 ## Kebijakan data terkunci
 

@@ -5,10 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from .. import auth, settings
+from ..accounts import current_id, registry
 from ..catalog import GROUP_ORDER, MENU_BY_KEY, MENUS
 from ..details import DETAILS, fetch_section
 from ..market import MARKET_PAGES, fetch_market
-from ..services import client, fetch_list, fetch_options
+from ..services import fetch_list, fetch_options
 
 router = APIRouter(prefix="/api")
 
@@ -18,7 +19,13 @@ class LoginBody(BaseModel):
 
 
 class CookieBody(BaseModel):
-    text: str
+    account: str | None = None      # kosong = akun yang sedang dipakai
+    text: str = ""                  # kosong = hanya ganti nama
+    label: str | None = None
+
+
+class NewAccountBody(BaseModel):
+    label: str = ""
 
 
 def _region(request: Request) -> str:
@@ -27,7 +34,7 @@ def _region(request: Request) -> str:
 
 
 def _query(request: Request) -> dict:
-    return {k: v for k, v in request.query_params.items() if k != "region"}
+    return {k: v for k, v in request.query_params.items() if k not in ("region", "acc")}
 
 
 # --- sesi -------------------------------------------------------------------------
@@ -92,30 +99,53 @@ async def market(page: str, section: str, request: Request, _: str = Depends(aut
 # --- akun & cookie ------------------------------------------------------------------
 @router.get("/account")
 async def account(request: Request, _: str = Depends(auth.require_team)):
-    acc = await client.account(force=request.query_params.get("refresh") == "1")
-    acc = dict(acc)
-    acc["cookie"] = {k: v for k, v in acc["cookie"].items() if k != "path"}
-    return acc
+    """Status akun yang sedang dipakai pengguna ini (dipilih lewat header X-FM-Account)."""
+    acc_id = current_id()
+    if request.query_params.get("refresh") == "1":
+        await registry.client(acc_id).account(force=True)
+    return await registry.summary(acc_id)
 
 
-@router.get("/cookie")
-async def cookie_status(_: str = Depends(auth.require_admin)):
-    return client.cookies.status().as_dict()
+@router.get("/accounts")
+async def accounts(request: Request, _: str = Depends(auth.require_team)):
+    """Semua akun FastMoss yang tersedia (untuk pilihan akun). Nilai cookie tidak pernah dikirim."""
+    if request.query_params.get("refresh") == "1":
+        for i in registry.ids():
+            await registry.client(i).account(force=True)
+    return {"current": current_id(), "default": registry.default_id(),
+            "accounts": [await registry.summary(i) for i in registry.ids()]}
+
+
+@router.post("/accounts")
+async def account_create(body: NewAccountBody, _: str = Depends(auth.require_admin)):
+    """Tambah slot akun kosong baru (config/cookies_akun_<N>.txt)."""
+    acc_id = registry.create(body.label.strip())
+    return await registry.summary(acc_id)
 
 
 @router.post("/cookie")
 async def cookie_save(body: CookieBody, _: str = Depends(auth.require_admin)):
+    """Simpan cookie dan/atau nama untuk satu akun, lalu uji ke FastMoss."""
+    acc_id = (body.account or "").strip() or current_id()
+    if acc_id not in registry.ids():
+        raise HTTPException(status_code=404, detail=f"Akun {acc_id} tidak ditemukan.")
+    cl = registry.client(acc_id)
+    label = body.label.strip() if body.label is not None else None
     try:
-        client.cookies.save(body.text)
+        if body.text.strip():
+            cl.cookies.save(body.text, label)
+        elif label is not None:
+            cl.cookies.set_label(label)
+        else:
+            raise ValueError("Tempel cookie atau isi nama akun dulu.")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    client.clear_cache()
-    acc = dict(await client.account(force=True))
-    acc["cookie"] = {k: v for k, v in acc["cookie"].items() if k != "path"}
-    return acc
+    cl.clear_cache()
+    await cl.account(force=True)
+    return await registry.summary(acc_id)
 
 
 @router.post("/cache/clear")
 async def cache_clear(_: str = Depends(auth.require_admin)):
-    client.clear_cache()
+    registry.clear_cache()
     return {"ok": True}

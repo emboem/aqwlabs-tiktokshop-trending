@@ -5,8 +5,11 @@
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const S = { me: null, catalog: null, account: null, region: "ID", options: {}, countries: [], token: 0 };
+const S = { me: null, catalog: null, account: null, accounts: [], acc: "", region: "ID", options: {}, countries: [], token: 0 };
 try { S.region = localStorage.getItem("fml.region") || "ID"; } catch (_) { /* tanpa storage */ }
+try { S.acc = localStorage.getItem("fml.account") || ""; } catch (_) { /* tanpa storage */ }
+// Akun FastMoss pilihan pengguna ini — dikirim di setiap request (server memakai cookie akun itu).
+const accHeaders = () => (S.acc ? { "X-FM-Account": S.acc } : {});
 
 function dig(obj, path) {
   if (!path) return undefined;
@@ -32,7 +35,7 @@ async function api(path, params = {}, opts = {}) {
   if (!opts.noRegion) u.searchParams.set("region", S.region);
   const r = await fetch(u, {
     method: opts.method || "GET",
-    headers: opts.body ? { "Content-Type": "application/json" } : {},
+    headers: { ...accHeaders(), ...(opts.body ? { "Content-Type": "application/json" } : {}) },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
     credentials: "same-origin",
   });
@@ -250,7 +253,7 @@ async function getOptions(source) {
 async function download(url) {
   toast("Menyiapkan berkas…", 1800);
   try {
-    const r = await fetch(url, { credentials: "same-origin" });
+    const r = await fetch(url, { credentials: "same-origin", headers: accHeaders() });
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
       throw new Error(j.detail || `HTTP ${r.status}`);
@@ -304,6 +307,7 @@ async function boot() {
 
 async function start() {
   S.catalog = await api("/api/catalog", {}, { noRegion: true });
+  await loadAccounts();
   renderShell();
   route();
   loadAccount();
@@ -311,6 +315,24 @@ async function start() {
     S.countries = o.list || o.country || [];
     renderRegion();
   });
+}
+
+async function loadAccounts(force = false) {
+  try {
+    const r = await api("/api/accounts", force ? { refresh: 1 } : {}, { noRegion: true });
+    S.accounts = r.accounts || [];
+    if (!S.accounts.some((a) => a.id === S.acc)) S.acc = r.current || r.default || "";
+  } catch (_) { S.accounts = []; }
+  renderAccounts();
+  return S.accounts;
+}
+function setAccount(id) {
+  S.acc = String(id);
+  try { localStorage.setItem("fml.account", S.acc); } catch (_) { /* */ }
+  S.account = null;
+  renderAccounts();
+  loadAccount();
+  route();
 }
 
 async function loadAccount(force = false) {
@@ -396,6 +418,7 @@ function renderShell() {
         <button class="btn ghost menu-btn" id="menuBtn" aria-label="Menu">☰</button>
         <form id="quick" class="grow" style="flex:1;min-width:0;max-width:520px"><input class="input" id="quickIn" style="width:100%" placeholder="Tempel link / ID produk, toko, kreator, video — atau ketik kata kunci produk"></form>
         <div class="spacer"></div>
+        <select class="select" id="acct" title="Akun FastMoss yang dipakai"></select>
         <select class="select" id="region" title="Negara"></select>
         <span id="plan" class="hide-sm"></span>
         <button class="btn ghost" id="themeBtn" title="Ganti tema">◐</button>
@@ -411,8 +434,18 @@ function renderShell() {
     renderLogin();
   });
   $("#quick").addEventListener("submit", (e) => { e.preventDefault(); quickJump($("#quickIn").value.trim()); });
+  renderAccounts();
   renderRegion();
   renderPlan();
+}
+
+const planShort = (a) => (!a.cookie?.exists ? "belum ada cookie" : !a.logged_in ? "cookie bermasalah" : a.is_free ? "gratis" : "berlangganan");
+function renderAccounts() {
+  const sel = $("#acct");
+  if (!sel) return;
+  sel.hidden = S.accounts.length < 2;
+  sel.innerHTML = S.accounts.map((a) => `<option value="${esc(a.id)}" ${a.id === S.acc ? "selected" : ""}>${esc(a.label)} · ${planShort(a)}</option>`).join("");
+  sel.onchange = () => setAccount(sel.value);
 }
 
 function markNav(hash) {
@@ -436,6 +469,7 @@ function renderPlan() {
   if (!el) return;
   const a = S.account;
   if (!a) { el.innerHTML = `<a href="#/settings" class="pill bad">Cookie belum siap</a>`; return; }
+  if (!a.cookie?.exists) { el.innerHTML = `<a href="#/settings" class="pill">Belum ada cookie</a>`; return; }
   if (!a.logged_in) { el.innerHTML = `<a href="#/settings" class="pill bad">Cookie bermasalah</a>`; return; }
   el.innerHTML = `<a href="#/settings" class="pill ${a.is_free ? "lock" : "ok"}" title="${esc(a.nickname || "")}">${a.is_free ? "🔒 " : "★ "}${esc(a.plan || "Akun FastMoss")}</a>`;
 }
@@ -905,61 +939,127 @@ async function pageMarket(el, key, q) {
 // ============================================================ pengaturan
 async function pageSettings(el) {
   const token = S.token;
+  const admin = !S.me || S.me.role === "admin";
   el.innerHTML = `<div class="page-head"><div><div class="crumb">Sistem</div><h1>Pengaturan & Cookie</h1>
-      <p>Status akun FastMoss yang dipakai bersama tim, dan tempat mengganti cookie.</p></div></div>
+      <p>Daftar akun FastMoss yang tersedia. Pilih akun yang Anda pakai — pilihan tersimpan di perangkat ini saja.</p></div></div>
     <div class="grid c2">
-      <section class="card card-pad"><h3 class="card-title">Akun FastMoss</h3><div id="acc">${skeletonRows(3)}</div>
-        <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="refAcc">Cek ulang akun</button><button class="btn" id="clrCache">Kosongkan cache</button></div></section>
-      <section class="card card-pad"><h3 class="card-title">File cookie</h3><div id="ck">${skeletonRows(2)}</div></section>
-      <section class="card card-pad" style="grid-column:1/-1"><h3 class="card-title">Ganti cookie</h3>
+      <section class="card card-pad"><h3 class="card-title">Akun yang Anda pakai</h3><div id="acc">${skeletonRows(3)}</div>
+        <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="refAcc">Cek ulang semua akun</button>${admin ? `<button class="btn" id="clrCache">Kosongkan cache</button>` : ""}</div></section>
+      <section class="card card-pad"><h3 class="card-title">Cara kerja multi-akun</h3>
+        <ul class="muted" style="margin:0;padding-left:18px;line-height:1.75">
+          <li>Satu akun = satu file di server: <code>config/cookies_akun_1.txt</code>, <code>cookies_akun_2.txt</code>, dst.</li>
+          <li>Baris <code># nama: …</code> di file = nama akun yang tampil di pilihan akun.</li>
+          <li>Tiap akun punya cache & status paket sendiri — data akun gratis dan berlangganan tidak tercampur.</li>
+          <li>Ganti cookie: tempel di bawah, atau edit file akunnya langsung (terbaca otomatis tanpa restart).</li>
+        </ul></section>
+      <section class="card card-pad" style="grid-column:1/-1">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px"><h3 class="card-title" style="margin:0">Daftar akun FastMoss</h3>
+        ${admin ? `<button class="btn sm" id="addAcc">+ Tambah slot akun</button>` : ""}</div><div id="accList">${skeletonRows(3)}</div></section>
+      ${admin ? `<section class="card card-pad" style="grid-column:1/-1" id="editor"><h3 class="card-title">Isi / ganti cookie akun</h3>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+          <div class="field"><label for="ckAcc">Akun</label><select class="select" id="ckAcc"></select></div>
+          <div class="field" style="flex:1;min-width:220px"><label for="ckLabel">Nama akun</label><input class="input" id="ckLabel" maxlength="60" placeholder="mis. Akun Berlangganan Tim"></div>
+        </div>
         <ol class="muted" style="margin:0 0 12px;padding-left:18px;line-height:1.7">
-          <li>Buka <a href="https://www.fastmoss.com/id" target="_blank" rel="noopener" style="text-decoration:underline">fastmoss.com</a> di Chrome dan pastikan sudah login.</li>
+          <li>Buka <a href="https://www.fastmoss.com/id" target="_blank" rel="noopener" style="text-decoration:underline">fastmoss.com</a> di Chrome dengan akun yang mau dipasang.</li>
           <li>Tekan <b>F12</b> → tab <b>Network</b> → muat ulang halaman → klik salah satu request <code>/api/…</code>.</li>
           <li>Klik kanan → <b>Copy → Copy as cURL</b> (atau salin isi header <code>Cookie</code>), lalu tempel di bawah.</li>
         </ol>
-        <p class="faint" style="font-size:12.5px;margin:0 0 10px">Bisa juga langsung mengedit file <code>config/cookies.txt</code> di server — perubahan terbaca otomatis tanpa restart.</p>
-        <textarea class="input" id="ckText" rows="6" style="width:100%" placeholder="Tempel cURL / header Cookie / isi cookie di sini"></textarea>
-        <div style="margin-top:10px;display:flex;gap:8px;align-items:center"><button class="btn primary" id="ckSave">Simpan & uji cookie</button><span id="ckMsg" class="muted"></span></div>
-      </section></div>`;
-  const drawAcc = (a) => {
+        <textarea class="input" id="ckText" rows="6" style="width:100%" placeholder="Tempel cURL / header Cookie / isi cookie di sini (kosongkan bila hanya mengganti nama akun)"></textarea>
+        <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn primary" id="ckSave">Simpan & uji</button><span id="ckMsg" class="muted"></span></div>
+      </section>` : `<section class="card card-pad" style="grid-column:1/-1"><p class="muted" style="margin:0">Mengganti cookie atau menambah akun butuh kata sandi admin.</p></section>`}
+    </div>`;
+
+  const planPill = (a) => (!a.cookie?.exists ? `<span class="pill">Belum ada cookie</span>`
+    : !a.logged_in ? `<span class="pill bad">Cookie bermasalah</span>`
+      : a.is_free ? `<span class="pill lock">🔒 ${esc(a.plan)}</span>` : `<span class="pill ok">★ ${esc(a.plan)}</span>`);
+
+  const drawAcc = () => {
     if (token !== S.token) return;
-    if (!a) { $("#acc", el).innerHTML = statusBanner({ status: "error", message: "Tidak bisa menghubungi server." }); return; }
-    if (!a.logged_in) { $("#acc", el).innerHTML = statusBanner({ status: "auth", message: a.message }); return; }
+    const a = S.accounts.find((x) => x.id === S.acc);
+    if (!a) { $("#acc", el).innerHTML = statusBanner({ status: "error", message: "Belum ada akun. Tambah slot akun lalu isi cookie-nya." }); return; }
     $("#acc", el).innerHTML = `<div class="kv">
-      <div><span>Nama</span><span>${esc(a.nickname || "–")}</span></div>
-      <div><span>Paket</span><span>${a.is_free ? `<span class="pill lock">🔒 ${esc(a.plan)}</span>` : `<span class="pill ok">★ ${esc(a.plan)}</span>`}</span></div>
+      <div><span>Akun</span><span>${esc(a.label)}</span></div>
+      <div><span>Paket</span><span>${planPill(a)}</span></div>
+      <div><span>Nama FastMoss</span><span>${esc(a.nickname || "–")}</span></div>
       <div><span>Berlaku s/d</span><span>${a.expire_at ? fmtTs(a.expire_at, false) : "–"}</span></div>
-      <div><span>Batas baris tampil</span><span>${a.is_free ? `${S.catalog.free_row_limit} baris teratas (halaman 1)` : "Sesuai paket"}</span></div></div>`;
+      <div><span>Batas baris tampil</span><span>${!a.logged_in ? "–" : a.is_free ? `${S.catalog.free_row_limit} baris teratas (halaman 1)` : "Sesuai paket"}</span></div></div>
+      ${a.logged_in || !a.message ? "" : `<p class="faint" style="font-size:12.5px;margin:10px 0 0">${esc(a.message)}</p>`}`;
   };
-  loadAccount().then(drawAcc);
-  $("#refAcc", el).addEventListener("click", () => loadAccount(true).then(drawAcc));
-  $("#clrCache", el).addEventListener("click", async () => {
-    try { await api("/api/cache/clear", {}, { method: "POST", noRegion: true }); toast("Cache dikosongkan."); } catch (e) { toast(e.message); }
-  });
-  try {
-    const c = await api("/api/cookie", {}, { noRegion: true });
+
+  const pickEditor = (id) => {
+    const sel = $("#ckAcc", el);
+    if (!sel) return;
+    sel.value = id;
+    $("#ckLabel", el).value = S.accounts.find((a) => a.id === id)?.label || "";
+  };
+
+  const drawList = () => {
     if (token !== S.token) return;
-    $("#ck", el).innerHTML = `<div class="kv">
-      <div><span>File ada</span><span>${c.exists ? "Ya" : "Tidak"}</span></div>
-      <div><span>Sesi login (fd_tk)</span><span>${c.has_session ? `<span class="pill ok">Ada</span>` : `<span class="pill bad">Tidak ada</span>`}</span></div>
-      <div><span>Panjang cookie</span><span>${nfF.format(c.length || 0)} karakter</span></div>
-      <div><span>Terakhir diubah</span><span>${c.updated_at ? fmtTs(c.updated_at) : "–"}</span></div></div>`;
-  } catch (e) {
-    $("#ck", el).innerHTML = `<p class="muted">${esc(e.message)}</p><p class="faint" style="font-size:12.5px">Mengganti cookie butuh kata sandi admin.</p>`;
-    $("#ckSave", el).disabled = true;
-  }
-  $("#ckSave", el).addEventListener("click", async () => {
-    const text = $("#ckText", el).value.trim();
-    if (!text) return toast("Tempel cookie dulu.");
-    $("#ckMsg", el).innerHTML = `<span class="spinner"></span> Menyimpan & menguji…`;
+    const box = $("#accList", el);
+    if (!S.accounts.length) { box.innerHTML = `<div class="empty">Belum ada file akun di folder config.</div>`; return; }
+    const cols = [
+      { label: "Akun", type: "html", key: "_name" }, { label: "Paket", type: "html", key: "_plan" },
+      { label: "Nama FastMoss", type: "text", key: "nickname" }, { label: "Berlaku s/d", type: "date", key: "expire_at" },
+      { label: "Cookie diubah", type: "html", key: "_upd" }, { label: "", type: "html", key: "_act" },
+    ];
+    const rows = S.accounts.map((a) => ({
+      ...a,
+      _name: `<b>${esc(a.label)}</b>${a.id === S.acc ? ` <span class="pill brand">dipakai</span>` : ""}<div class="faint" style="font-size:12px">config/${esc(a.file)}</div>`,
+      _plan: planPill(a),
+      _upd: a.cookie?.updated_at ? fmtTs(a.cookie.updated_at) : "–",
+      _act: `<span style="white-space:nowrap">${a.id === S.acc ? "" : `<button class="btn sm" data-use="${esc(a.id)}">Pakai</button> `}`
+        + `${admin ? `<button class="btn sm ghost" data-edit="${esc(a.id)}">Ubah</button>` : ""}</span>`,
+    }));
+    box.innerHTML = `<div class="table-wrap"><table class="data" style="min-width:760px"><thead><tr><th>#</th>${cols.map((c) => `<th style="text-align:left">${esc(c.label)}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map((r) => `<tr><td>${esc(r.id)}</td>${cols.map((c) => `<td style="text-align:left">${c.type === "html" ? r[c.key] : cell(c, r)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+    $$("[data-use]", box).forEach((b) => b.addEventListener("click", () => setAccount(b.dataset.use)));
+    $$("[data-edit]", box).forEach((b) => b.addEventListener("click", () => {
+      pickEditor(b.dataset.edit);
+      $("#editor", el)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }));
+    const sel = $("#ckAcc", el);
+    if (sel) {
+      const keep = sel.value || S.acc;
+      sel.innerHTML = S.accounts.map((a) => `<option value="${esc(a.id)}">${esc(a.id)} — ${esc(a.label)}</option>`).join("");
+      pickEditor(S.accounts.some((a) => a.id === keep) ? keep : S.acc);
+    }
+  };
+
+  const refresh = async (force = false) => {
+    await loadAccounts(force);
+    await loadAccount();
+    drawAcc();
+    drawList();
+  };
+  refresh();
+
+  $("#refAcc", el).addEventListener("click", () => refresh(true));
+  $("#clrCache", el)?.addEventListener("click", async () => {
+    try { await api("/api/cache/clear", {}, { method: "POST", noRegion: true }); toast("Cache semua akun dikosongkan."); } catch (e) { toast(e.message); }
+  });
+  $("#addAcc", el)?.addEventListener("click", async () => {
     try {
-      const a = await api("/api/cookie", {}, { method: "POST", body: { text }, noRegion: true });
-      S.account = a;
-      S.options = {};
-      renderPlan();
+      const a = await api("/api/accounts", {}, { method: "POST", body: { label: "" }, noRegion: true });
+      toast(`Slot ${a.label} dibuat: config/${a.file}`);
+      await refresh();
+      pickEditor(a.id);
+      $("#editor", el)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (e) { toast(e.message); }
+  });
+  $("#ckAcc", el)?.addEventListener("change", (e) => pickEditor(e.target.value));
+  $("#ckSave", el)?.addEventListener("click", async () => {
+    const account = $("#ckAcc", el).value;
+    const text = $("#ckText", el).value.trim();
+    const label = $("#ckLabel", el).value.trim();
+    $("#ckMsg", el).innerHTML = `<span class="spinner"></span> Menyimpan${text ? " & menguji" : ""}…`;
+    try {
+      const a = await api("/api/cookie", {}, { method: "POST", body: { account, text, label }, noRegion: true });
       $("#ckText", el).value = "";
-      $("#ckMsg", el).textContent = a.logged_in ? `Tersimpan. Akun: ${a.nickname || "?"} — ${a.plan || ""}` : `Tersimpan, tapi: ${a.message}`;
-      pageSettings(el);
+      S.options = {};
+      await refresh();
+      $("#ckMsg", el).textContent = !text ? `Nama akun ${a.id} disimpan.`
+        : a.logged_in ? `Tersimpan. ${a.label}: ${a.nickname || "?"} — ${a.plan || ""}` : `Tersimpan, tapi: ${a.message}`;
     } catch (e) { $("#ckMsg", el).textContent = `Gagal: ${e.message}`; }
   });
 }

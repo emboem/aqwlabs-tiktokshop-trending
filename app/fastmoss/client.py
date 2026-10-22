@@ -90,8 +90,8 @@ def classify(payload: dict) -> FMResult:
 
 
 class FastMossClient:
-    def __init__(self, cookie_store: CookieStore | None = None):
-        self.cookies = cookie_store or CookieStore(settings.COOKIE_FILE)
+    def __init__(self, cookie_store: CookieStore):
+        self.cookies = cookie_store
         self._http: httpx.AsyncClient | None = None
         self._lock = asyncio.Lock()
         self._last_call = 0.0

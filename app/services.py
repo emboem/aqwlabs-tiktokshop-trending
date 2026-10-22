@@ -6,9 +6,8 @@ from typing import Any
 
 from . import settings
 from .catalog import OPTION_SOURCES, Menu, build_params
-from .fastmoss.client import FastMossClient, FMResult
-
-client = FastMossClient()
+from .accounts import client
+from .fastmoss.client import FMResult
 
 
 def dig(obj: Any, path: str) -> Any:

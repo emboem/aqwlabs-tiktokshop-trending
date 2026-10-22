@@ -229,6 +229,7 @@ table.data tr:nth-child(3) td.rank { color: #c7773b; }
   .topbar { gap: 8px; }
   .topbar .spacer { display: none; }
   #region { max-width: 120px; }
+  #acct { max-width: 130px; }
 }
 @media (max-width: 560px) {
   .grid.k4 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }

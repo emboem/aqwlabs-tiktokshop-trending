@@ -1,5 +1,7 @@
 # rahasia — JANGAN di-commit
-config/cookies.txt
+config/cookies*.txt
+!config/cookies.example.txt
+config/.cookies-*
 .env
 
 # python
