@@ -11,8 +11,10 @@ Aturan penting (sesuai paket akun, TIDAK menembus paywall):
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -46,6 +48,27 @@ class FMResult:
                 "data": self.data, "cached": self.cached, "meta": self.meta}
 
 
+# FastMoss menyorot kata kunci pencarian dengan tag HTML di dalam teks
+# (mis. "Alquran <span style='color:red'>Al</span>-Qur'an") → buang tagnya, simpan teksnya.
+_MARKUP = re.compile(r"</?(?:span|em|b|i|u|strong|font|mark|a|sup|sub|p|div|br)\b[^<>]*>", re.I)
+_ENTITY = re.compile(r"&(?:#\d+|#x[0-9a-f]+|[a-z]+);", re.I)
+
+
+def strip_markup(obj: Any) -> Any:
+    """Bersihkan tag HTML sorotan dari semua teks di dalam data (rekursif)."""
+    if isinstance(obj, str):
+        if "<" in obj and _MARKUP.search(obj):
+            obj = _MARKUP.sub("", obj)
+            if _ENTITY.search(obj):
+                obj = html.unescape(obj)
+        return obj
+    if isinstance(obj, list):
+        return [strip_markup(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: strip_markup(v) for k, v in obj.items()}
+    return obj
+
+
 def classify(payload: dict) -> FMResult:
     code = payload.get("code")
     msg = str(payload.get("msg") or "")
@@ -55,7 +78,7 @@ def classify(payload: dict) -> FMResult:
             # code 200 tapi ditandai is_mock: FastMoss mengirim data CONTOH (bukan milik item ini)
             return FMResult(LOCKED, "IS_MOCK", "FastMoss hanya mengirim data contoh untuk bagian ini "
                                                "(terkunci paket akun yang dipakai).")
-        return FMResult(OK, code, msg, data)
+        return FMResult(OK, code, msg, strip_markup(data))
     scode = str(code)
     low = msg.lower()
     if scode == "MSG_30001" or "login" in low or "masuk" in low or "登录" in msg:

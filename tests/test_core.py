@@ -4,7 +4,7 @@ import datetime as dt
 from app.catalog import MENUS, MENU_BY_KEY, build_params, default_period_value
 from app.details import DETAILS
 from app.fastmoss.cookies import CookieStore, cookie_get, parse_cookie_text
-from app.fastmoss.client import classify
+from app.fastmoss.client import strip_markup, classify
 from app.fastmoss.signer import fm_sig, fm_sign
 from app.market import MARKET_PAGES
 from app.routes.export import cell_value, table_matrix, to_csv, to_xlsx, to_pdf
@@ -84,3 +84,14 @@ def test_export_writers():
     assert to_xlsx("Uji", header, body, "catatan")[:2] == b"PK"
     assert to_csv(header, body).startswith("\ufeff".encode())
     assert to_pdf("Uji", header, body, "catatan")[:4] == b"%PDF"
+
+
+def test_strip_markup_highlight():
+    raw = {"product_list": [{"title": "Alquran Kecil <span style='color:red'>Al</span>-Qur'an <SPAN style=\"color:red\">Muhaddits</SPAN> &amp; Tajwid",
+                             "price": 58229, "tags": ["<b>Buku</b>", "Size <3"]}]}
+    out = strip_markup(raw)["product_list"][0]
+    assert out["title"] == "Alquran Kecil Al-Qur'an Muhaddits & Tajwid"
+    assert out["tags"] == ["Buku", "Size <3"]
+    assert out["price"] == 58229
+    res = classify({"code": 200, "msg": "ok", "data": raw})
+    assert "<span" not in res.data["product_list"][0]["title"]
