@@ -1,0 +1,14 @@
+# rahasia — JANGAN di-commit
+config/cookies.txt
+.env
+
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# hasil ekspor / lokal
+exports/
+*.log
