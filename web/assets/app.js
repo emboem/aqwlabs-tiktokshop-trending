@@ -227,7 +227,7 @@ function statusBanner(res, retry) {
   }
   if (res.status === "auth") {
     return `<div class="banner bad"><span class="ico">⚠️</span><div><b>Cookie FastMoss bermasalah.</b> ${esc(res.message || "")} `
-      + `<a href="#/settings" style="text-decoration:underline">Buka Pengaturan</a></div></div>`;
+      + `<a href="#/settings?edit=${encodeURIComponent(S.acc)}" style="text-decoration:underline">Ganti cookie</a></div></div>`;
   }
   return `<div class="banner bad"><span class="ico">⚠️</span><div><b>Gagal memuat data.</b> ${esc(res.message || "")}`
     + (retry ? ` <button class="btn sm" data-retry>Coba lagi</button>` : "") + `</div></div>`;
@@ -355,7 +355,7 @@ function route() {
   if (page === "m" && parts[1]) return pageList(el, parts[1], q);
   if (page === "market" && parts[1]) return pageMarket(el, parts[1], q);
   if (page === "detail" && parts[1] && parts[2]) return pageDetail(el, parts[1], parts[2], q);
-  if (page === "settings") return pageSettings(el);
+  if (page === "settings") return pageSettings(el, q);
   return pageHome(el);
 }
 
@@ -469,8 +469,9 @@ function renderPlan() {
   if (!el) return;
   const a = S.account;
   if (!a) { el.innerHTML = `<a href="#/settings" class="pill bad">Cookie belum siap</a>`; return; }
-  if (!a.cookie?.exists) { el.innerHTML = `<a href="#/settings" class="pill">Belum ada cookie</a>`; return; }
-  if (!a.logged_in) { el.innerHTML = `<a href="#/settings" class="pill bad">Cookie bermasalah</a>`; return; }
+  const fix = `#/settings?edit=${encodeURIComponent(a.id || S.acc)}`;
+  if (!a.cookie?.exists) { el.innerHTML = `<a href="${fix}" class="pill" title="Klik untuk mengisi cookie">Belum ada cookie</a>`; return; }
+  if (!a.logged_in) { el.innerHTML = `<a href="${fix}" class="pill bad" title="Klik untuk mengganti cookie">Cookie bermasalah</a>`; return; }
   el.innerHTML = `<a href="#/settings" class="pill ${a.is_free ? "lock" : "ok"}" title="${esc(a.nickname || "")}">${a.is_free ? "🔒 " : "★ "}${esc(a.plan || "Akun FastMoss")}</a>`;
 }
 
@@ -937,7 +938,7 @@ async function pageMarket(el, key, q) {
 }
 
 // ============================================================ pengaturan
-async function pageSettings(el) {
+async function pageSettings(el, q = {}) {
   const token = S.token;
   const admin = !S.me || S.me.role === "admin";
   el.innerHTML = `<div class="page-head"><div><div class="crumb">Sistem</div><h1>Pengaturan & Cookie</h1>
@@ -950,7 +951,7 @@ async function pageSettings(el) {
           <li>Satu akun = satu file di server: <code>config/cookies_akun_1.txt</code>, <code>cookies_akun_2.txt</code>, dst.</li>
           <li>Baris <code># nama: …</code> di file = nama akun yang tampil di pilihan akun.</li>
           <li>Tiap akun punya cache & status paket sendiri — data akun gratis dan berlangganan tidak tercampur.</li>
-          <li>Ganti cookie: tempel di bawah, atau edit file akunnya langsung (terbaca otomatis tanpa restart).</li>
+          <li>Isi / ganti cookie: klik <b>Isi cookie</b> / <b>Ganti cookie</b> pada tabel, lalu tempel cURL apa adanya atau pilih file .txt. Bisa juga edit file akunnya langsung (terbaca tanpa restart).</li>
         </ul></section>
       <section class="card card-pad" style="grid-column:1/-1">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px"><h3 class="card-title" style="margin:0">Daftar akun FastMoss</h3>
@@ -963,10 +964,20 @@ async function pageSettings(el) {
         <ol class="muted" style="margin:0 0 12px;padding-left:18px;line-height:1.7">
           <li>Buka <a href="https://www.fastmoss.com/id" target="_blank" rel="noopener" style="text-decoration:underline">fastmoss.com</a> di Chrome dengan akun yang mau dipasang.</li>
           <li>Tekan <b>F12</b> → tab <b>Network</b> → muat ulang halaman → klik salah satu request <code>/api/…</code>.</li>
-          <li>Klik kanan → <b>Copy → Copy as cURL</b> (atau salin isi header <code>Cookie</code>), lalu tempel di bawah.</li>
+          <li>Klik kanan → <b>Copy → Copy as cURL</b> (cmd maupun bash), lalu tempel <b>apa adanya</b> di bawah — tanda <code>^</code> dan sejenisnya dibersihkan otomatis.</li>
         </ol>
-        <textarea class="input" id="ckText" rows="6" style="width:100%" placeholder="Tempel cURL / header Cookie / isi cookie di sini (kosongkan bila hanya mengganti nama akun)"></textarea>
-        <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn primary" id="ckSave">Simpan & uji</button><span id="ckMsg" class="muted"></span></div>
+        <div class="drop" id="ckDrop">
+          <textarea class="input" id="ckText" rows="6" style="width:100%" spellcheck="false" autocomplete="off"
+            placeholder="Tempel di sini: cURL (cmd/bash), header Cookie, isi cookie, PowerShell, atau ekspor JSON ekstensi cookie. Bisa juga seret file .txt ke kotak ini. Kosongkan bila hanya mengganti nama akun."></textarea>
+          <div class="drop-hint">Lepaskan file untuk membaca isinya</div>
+        </div>
+        <div id="ckDetect" class="faint" style="font-size:12.5px;margin-top:6px;min-height:18px"></div>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button class="btn primary" id="ckSave">Simpan & uji</button>
+          <label class="btn" for="ckFile" style="cursor:pointer">Pilih file…</label>
+          <input type="file" id="ckFile" accept=".txt,.json,.har,text/plain,application/json" hidden>
+          <button class="btn ghost" id="ckClear" type="button">Kosongkan</button>
+          <span id="ckMsg" class="muted"></span></div>
       </section>` : `<section class="card card-pad" style="grid-column:1/-1"><p class="muted" style="margin:0">Mengganti cookie atau menambah akun butuh kata sandi admin.</p></section>`}
     </div>`;
 
@@ -1009,15 +1020,13 @@ async function pageSettings(el) {
       _plan: planPill(a),
       _upd: a.cookie?.updated_at ? fmtTs(a.cookie.updated_at) : "–",
       _act: `<span style="white-space:nowrap">${a.id === S.acc ? "" : `<button class="btn sm" data-use="${esc(a.id)}">Pakai</button> `}`
-        + `${admin ? `<button class="btn sm ghost" data-edit="${esc(a.id)}">Ubah</button>` : ""}</span>`,
+        + `${!admin ? "" : a.cookie?.exists ? `<button class="btn sm ghost" data-edit="${esc(a.id)}">Ganti cookie</button>`
+          : `<button class="btn sm primary" data-edit="${esc(a.id)}">Isi cookie</button>`}</span>`,
     }));
     box.innerHTML = `<div class="table-wrap"><table class="data" style="min-width:760px"><thead><tr><th>#</th>${cols.map((c) => `<th style="text-align:left">${esc(c.label)}</th>`).join("")}</tr></thead>
       <tbody>${rows.map((r) => `<tr><td>${esc(r.id)}</td>${cols.map((c) => `<td style="text-align:left">${c.type === "html" ? r[c.key] : cell(c, r)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
     $$("[data-use]", box).forEach((b) => b.addEventListener("click", () => setAccount(b.dataset.use)));
-    $$("[data-edit]", box).forEach((b) => b.addEventListener("click", () => {
-      pickEditor(b.dataset.edit);
-      $("#editor", el)?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }));
+    $$("[data-edit]", box).forEach((b) => b.addEventListener("click", () => openEditor(b.dataset.edit)));
     const sel = $("#ckAcc", el);
     if (sel) {
       const keep = sel.value || S.acc;
@@ -1026,13 +1035,61 @@ async function pageSettings(el) {
     }
   };
 
+  const openEditor = (id) => {
+    pickEditor(id);
+    $("#editor", el)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setTimeout(() => $("#ckText", el)?.focus({ preventScroll: true }), 350);
+  };
+
   const refresh = async (force = false) => {
     await loadAccounts(force);
     await loadAccount();
     drawAcc();
     drawList();
   };
-  refresh();
+  refresh().then(() => { if (q.edit && admin && S.accounts.some((a) => a.id === q.edit)) openEditor(q.edit); });
+
+  // deteksi format otomatis saat menempel (server hanya membalas ringkasan, bukan nilai cookie)
+  let detTimer = 0;
+  let detSeq = 0;
+  const detect = () => {
+    clearTimeout(detTimer);
+    const box = $("#ckDetect", el);
+    const text = $("#ckText", el)?.value.trim() || "";
+    if (!box) return;
+    if (!text) { box.textContent = ""; return; }
+    box.innerHTML = `<span class="spinner"></span> Mengenali format…`;
+    detTimer = setTimeout(async () => {
+      const seq = ++detSeq;
+      try {
+        const r = await api("/api/cookie/preview", {}, { method: "POST", body: { text }, noRegion: true });
+        if (seq !== detSeq) return;
+        box.innerHTML = !r.ok
+          ? `<span style="color:var(--bad)">✗ ${r.format ? `${esc(r.format)} terbaca, tapi tidak ada cookie di dalamnya.` : "Cookie tidak terbaca dari teks ini."}</span>`
+          : `<span style="color:var(--ok)">✓</span> Terbaca sebagai <b>${esc(r.format)}</b> · ${r.count} cookie · `
+            + (r.has_session ? `sesi login <code>fd_tk</code> ada` : `<span style="color:var(--bad)">sesi login <code>fd_tk</code> tidak ada — kemungkinan belum login</span>`);
+      } catch (e) { if (seq === detSeq) box.textContent = e.message; }
+    }, 350);
+  };
+  const loadFile = async (file) => {
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { toast("File terlalu besar (maks. 2 MB)."); return; }
+    $("#ckText", el).value = await file.text();
+    $("#ckMsg", el).textContent = `Dibaca dari ${file.name}`;
+    detect();
+  };
+  $("#ckText", el)?.addEventListener("input", detect);
+  $("#ckFile", el)?.addEventListener("change", (e) => { loadFile(e.target.files[0]); e.target.value = ""; });
+  $("#ckClear", el)?.addEventListener("click", () => { $("#ckText", el).value = ""; $("#ckMsg", el).textContent = ""; detect(); });
+  const drop = $("#ckDrop", el);
+  if (drop) {
+    ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+    ["dragleave", "drop"].forEach((t) => drop.addEventListener(t, () => drop.classList.remove("over")));
+    drop.addEventListener("drop", (e) => {
+      const f = e.dataTransfer?.files?.[0];
+      if (f) { e.preventDefault(); loadFile(f); }
+    });
+  }
 
   $("#refAcc", el).addEventListener("click", () => refresh(true));
   $("#clrCache", el)?.addEventListener("click", async () => {
@@ -1043,8 +1100,7 @@ async function pageSettings(el) {
       const a = await api("/api/accounts", {}, { method: "POST", body: { label: "" }, noRegion: true });
       toast(`Slot ${a.label} dibuat: config/${a.file}`);
       await refresh();
-      pickEditor(a.id);
-      $("#editor", el)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      openEditor(a.id);
     } catch (e) { toast(e.message); }
   });
   $("#ckAcc", el)?.addEventListener("change", (e) => pickEditor(e.target.value));
@@ -1056,6 +1112,7 @@ async function pageSettings(el) {
     try {
       const a = await api("/api/cookie", {}, { method: "POST", body: { account, text, label }, noRegion: true });
       $("#ckText", el).value = "";
+      $("#ckDetect", el).textContent = "";
       S.options = {};
       await refresh();
       $("#ckMsg", el).textContent = !text ? `Nama akun ${a.id} disimpan.`

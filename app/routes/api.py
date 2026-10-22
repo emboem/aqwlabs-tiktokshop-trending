@@ -8,6 +8,7 @@ from .. import auth, settings
 from ..accounts import current_id, registry
 from ..catalog import GROUP_ORDER, MENU_BY_KEY, MENUS
 from ..details import DETAILS, fetch_section
+from ..fastmoss.cookies import SESSION_KEY, cookie_get, detect_cookie
 from ..market import MARKET_PAGES, fetch_market
 from ..services import fetch_list, fetch_options
 
@@ -143,6 +144,15 @@ async def cookie_save(body: CookieBody, _: str = Depends(auth.require_admin)):
     cl.clear_cache()
     await cl.account(force=True)
     return await registry.summary(acc_id)
+
+
+@router.post("/cookie/preview")
+async def cookie_preview(body: CookieBody, _: str = Depends(auth.require_admin)):
+    """Kenali format tempelan TANPA menyimpan. Yang dibalas hanya ringkasan, bukan nilai cookie."""
+    cookie, fmt = detect_cookie(body.text)
+    names = [c.split("=", 1)[0] for c in cookie.split("; ")] if cookie else []
+    return {"ok": bool(cookie), "format": fmt, "count": len(names),
+            "has_session": bool(cookie_get(cookie, SESSION_KEY))}
 
 
 @router.post("/cache/clear")

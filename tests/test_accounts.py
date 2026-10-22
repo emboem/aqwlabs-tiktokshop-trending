@@ -72,3 +72,22 @@ def test_api_picks_account_from_header(reg):
         assert c.post("/api/cookie", json={"account": "9", "text": COOKIE}).status_code == 404
         new = c.post("/api/accounts", json={"label": ""}).json()
         assert new["id"] == "3" and new["file"] == "cookies_akun_3.txt"
+
+
+def test_cookie_preview_never_returns_values(reg, monkeypatch):
+    from app.fastmoss.client import FMResult, FastMossClient
+
+    async def offline(self, path, params=None, **kw):       # jangan sampai cookie palsu dikirim ke FastMoss
+        return FMResult(status="auth", message="uji offline")
+    monkeypatch.setattr(FastMossClient, "get", offline)
+    reg.create("A")
+    from app.main import app
+    curl = 'curl ^"https://www.fastmoss.com/api/x^" ^\n  -b ^"fd_tk=RAHASIA123; NEXT_LOCALE=id^"\n'
+    with TestClient(app) as c:
+        r = c.post("/api/cookie/preview", json={"text": curl})
+        assert r.json() == {"ok": True, "format": "cURL Windows (cmd)", "count": 2, "has_session": True}
+        assert "RAHASIA123" not in r.text
+        bad = c.post("/api/cookie", json={"account": "1", "text": "curl 'https://x' -H 'accept: */*'"})
+        assert bad.status_code == 400 and "tidak berisi cookie" in bad.json()["detail"]
+        ok = c.post("/api/cookie", json={"account": "1", "text": curl}).json()
+        assert ok["cookie"]["exists"] and "RAHASIA123" not in str(ok)

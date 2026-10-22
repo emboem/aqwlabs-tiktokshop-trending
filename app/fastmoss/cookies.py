@@ -1,15 +1,17 @@
 """Penyimpanan cookie FastMoss: SATU file khusus per akun (``config/cookies_akun_<N>.txt``).
 
-Isi file boleh berupa salah satu dari:
+Isi file boleh ditempel apa adanya — formatnya dikenali otomatis (``detect_cookie``):
   * string cookie biasa      : ``fd_tk=...; region=ID; ...``
-  * baris header             : ``Cookie: fd_tk=...``
-  * perintah cURL utuh       : hasil "Copy as cURL" dari DevTools (bash maupun cmd/Windows)
+  * baris header             : ``Cookie: fd_tk=...`` (boleh di tengah blok header lengkap)
+  * perintah cURL utuh       : "Copy as cURL" bash maupun Windows cmd (yang penuh tanda ``^``)
+  * PowerShell, fetch/Node.js, ekspor JSON ekstensi cookie, tabel cookie DevTools
 Baris yang diawali ``#`` dianggap komentar, kecuali ``# nama: ...`` = nama akun yang tampil di aplikasi.
 
 Nilai cookie TIDAK PERNAH dikirim balik ke browser; halaman Pengaturan hanya melihat statusnya.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import tempfile
@@ -51,8 +53,18 @@ class CookieStatus:
 
 
 def _unescape_cmd(s: str) -> str:
-    # "Copy as cURL (cmd)" di Windows memakai ^ sebagai escape.
-    return re.sub(r"\^(.)", r"\1", s)
+    # "Copy as cURL (cmd)" di Windows: tiap karakter khusus diberi ^ (mis. ^%^2, ^|), kutip jadi \^".
+    s = re.sub(r"\^(.)", r"\1", s, flags=re.S)
+    return s.replace('\\"', '"').replace("\\\\", "\\")
+
+
+def _unescape_bash(s: str) -> str:
+    # bash: 'a'\''b' (kutip tunggal di dalam nilai) dan $'...' (escape gaya C).
+    return s.replace("'\\''", "'").replace("\\'", "'").replace("\\\\", "\\")
+
+
+def _unescape_dq(s: str) -> str:
+    return re.sub(r"\\(.)", r"\1", s)
 
 
 def parse_label(text: str) -> str:
@@ -61,33 +73,102 @@ def parse_label(text: str) -> str:
     return m.group(1).strip()[:60] if m else ""
 
 
-def parse_cookie_text(text: str) -> str:
-    """Ambil string cookie dari teks bebas (cookie mentah / header / cURL)."""
-    lines = [ln for ln in text.splitlines() if not ln.strip().startswith("#")]
-    body = "\n".join(lines).strip()
+# (nama format, pola, fungsi unescape) — urutan = prioritas. Pola menangkap ISI cookie saja.
+_CURL_PATTERNS = [
+    ("cURL Windows (cmd)", r"""(?:\s-b|--cookie)\s+\^"(.*?)\^"(?=\s|$)""", _unescape_cmd),
+    ("cURL Windows (cmd)", r"""\s-H\s+\^"cookie:\s*(.*?)\^"(?=\s|$)""", _unescape_cmd),
+    ("cURL bash", r"""(?:\s-b|--cookie)\s+\$?'(.*?)'(?=\s|$)""", _unescape_bash),
+    ("cURL bash", r"""\s-H\s+\$?'cookie:\s*(.*?)'(?=\s|$)""", _unescape_bash),
+    ("cURL", r"""(?:\s-b|--cookie)\s+"((?:[^"\\]|\\.)*)\"""", _unescape_dq),
+    ("cURL", r"""\s-H\s+"cookie:\s*((?:[^"\\]|\\.)*)\"""", _unescape_dq),
+]
+
+
+def _from_json(body: str) -> str:
+    """Ekspor ekstensi (Cookie-Editor / EditThisCookie): daftar {name, value, domain}."""
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return ""
+    if isinstance(data, dict):
+        data = data.get("cookies") or data.get("cookie") or []
+        if isinstance(data, str):
+            return _normalize(data)
+    if not isinstance(data, list):
+        return ""
+    items = [d for d in data if isinstance(d, dict) and d.get("name")]
+    own = [d for d in items if "fastmoss" in str(d.get("domain", "")).lower()]
+    return "; ".join(f"{d['name']}={d.get('value', '')}" for d in (own or items))
+
+
+def detect_cookie(text: str) -> tuple[str, str]:
+    """Kenali format teks tempelan secara otomatis. Kembalikan ``(cookie, nama_format)``.
+
+    Dikenali: cookie mentah, baris ``Cookie:`` (boleh di tengah blok header lengkap), cURL bash maupun
+    Windows cmd (dengan ``^``), PowerShell, fetch/Node.js, ekspor JSON ekstensi cookie, dan tabel
+    cookie DevTools (kolom dipisah tab). Bila ada beberapa request sekaligus, diambil yang pertama.
+    """
+    raw = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip().lstrip("﻿")
+    if raw[:1] in "[{":
+        cookie = _from_json(raw)
+        if cookie:
+            return cookie, "JSON ekstensi cookie"
+    body = "\n".join(ln for ln in raw.splitlines() if not ln.strip().startswith("#")).strip()
     if not body:
-        return ""
-    if re.search(r"\bcurl\b", body, re.I):
-        flat = body.replace("\\\n", " ").replace("^\n", " ")
-        patterns = [
-            r"""(?:-b|--cookie)\s+\^?(["'])(.*?)\^?\1""",
-            r"""-H\s+\^?(["'])\^?cookie:\s*(.*?)\^?\1""",
-        ]
-        for pat in patterns:
-            m = re.search(pat, flat, re.I | re.S)
-            if m:
-                return _normalize(_unescape_cmd(m.group(2)))
-        return ""
+        return "", ""
+
+    if re.search(r"\bcurl(\.exe)?\b", body, re.I):
+        flat = re.sub(r"(\\|\^|`)\n", " ", body)
+        for block in re.split(r"(?=\bcurl(?:\.exe)?\s)", flat, flags=re.I):   # "Copy all as cURL" -> per request
+            for name, pat, unescape in _CURL_PATTERNS:
+                m = re.search(pat, " " + block, re.I | re.S)
+                if m:
+                    return _normalize(unescape(m.group(1))), name
+        return "", "cURL"
+
+    if re.search(r"System\.Net\.Cookie\(", body):          # "Copy as PowerShell"
+        pairs = re.findall(r'System\.Net\.Cookie\(\s*"((?:[^"`]|`.)*)"\s*,\s*"((?:[^"`]|`.)*)"', body)
+        unq = lambda s: re.sub(r"`(.)", r"\1", s)              # noqa: E731
+        return "; ".join(f"{unq(k)}={unq(v)}" for k, v in pairs), "PowerShell"
+
+    m = re.search(r"""["']cookie["']\s*[:=]\s*("(?:[^"\\]|\\.)*")""", body, re.I)  # fetch / Node.js / PS -Headers
+    if m:
+        try:
+            return _normalize(json.loads(m.group(1))), "fetch / Node.js"
+        except ValueError:
+            pass
+
+    lines = [ln for ln in body.splitlines() if ln.strip()]
+    m = re.search(r"^\s*cookie\s*:\s*(.+)$", body, re.I | re.M)
+    if m and (len(lines) > 1 or not body.lower().startswith("cookie")):
+        return _normalize(m.group(1)), "blok header"
+    for i, ln in enumerate(lines[:-1]):                      # panel Headers DevTools: "cookie" lalu nilainya
+        if ln.strip().lower() == "cookie":
+            return _normalize(lines[i + 1]), "blok header"
+
+    if sum("\t" in ln for ln in lines) >= max(1, len(lines) // 2):   # tabel Application > Cookies
+        rows = [ln.split("\t") for ln in lines if "\t" in ln]
+        rows = [r for r in rows if r[0].strip() and r[0].strip().lower() != "name"]
+        return "; ".join(f"{r[0].strip()}={r[1].strip() if len(r) > 1 else ''}" for r in rows), "tabel DevTools"
+
     body = re.sub(r"^\s*cookie\s*:\s*", "", body, flags=re.I)
-    return _normalize(body)
+    return _normalize(body), "cookie mentah"
+
+
+def parse_cookie_text(text: str) -> str:
+    """Ambil string cookie dari teks bebas (format dikenali otomatis — lihat ``detect_cookie``)."""
+    return detect_cookie(text)[0]
 
 
 def _normalize(cookie: str) -> str:
-    parts = []
+    parts, seen = [], set()
     for chunk in re.split(r";\s*|\n+", cookie):
-        chunk = chunk.strip()
-        if "=" in chunk:
-            parts.append(chunk)
+        name, eq, value = chunk.strip().partition("=")
+        name = name.strip()
+        if not eq or not name or re.search(r"[\s\"';,]", name) or name in seen:
+            continue
+        seen.add(name)
+        parts.append(f"{name}={value.strip()}")
     return "; ".join(parts)
 
 
@@ -142,9 +223,13 @@ class CookieStore:
         """Simpan cookie baru (atomik: tulis file sementara lalu ganti). Kembalikan cookie hasil parse.
 
         Nama akun lama dipertahankan kecuali ``label`` diisi."""
-        cookie = parse_cookie_text(text)
+        cookie, fmt = detect_cookie(text)
+        if not cookie and fmt.startswith("cURL"):
+            raise ValueError("cURL terbaca, tapi tidak berisi cookie. Pastikan sudah login di FastMoss dan salin "
+                             "dari request www.fastmoss.com/api/… (bukan request gambar/analitik).")
         if not cookie:
-            raise ValueError("Cookie tidak terbaca. Tempel string cookie, header 'Cookie:', atau perintah cURL.")
+            raise ValueError("Cookie tidak terbaca. Tempel cURL, header 'Cookie:', isi cookie, "
+                             "atau ekspor JSON ekstensi cookie.")
         self.write(self.label() if label is None else label, cookie)
         return cookie
 

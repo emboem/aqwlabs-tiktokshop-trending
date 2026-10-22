@@ -82,13 +82,16 @@ Yang belum memilih memakai `FM_DEFAULT_ACCOUNT` (atau akun bernomor terkecil).
 
 **Mengisi / mengganti cookie** (dua cara):
 
-- **A. Lewat aplikasi (paling mudah).** Buka **Pengaturan & Cookie** → pada tabel akun klik **Ubah** → tempel cURL atau cookie →
-  **Simpan & uji**. Tombol **+ Tambah slot akun** membuat file akun baru. Butuh kata sandi admin kalau login diaktifkan.
+- **A. Lewat aplikasi (paling mudah).** Buka **Pengaturan & Cookie** → pada tabel akun klik **Isi cookie** / **Ganti cookie**
+  (atau klik label "Belum ada cookie" / "Cookie bermasalah" di bilah atas) → tempel teksnya **apa adanya**, klik **Pilih file…**,
+  atau seret file .txt ke kotak → **Simpan & uji**. Sebelum disimpan, aplikasi menampilkan format yang terbaca, jumlah cookie,
+  dan apakah sesi login (`fd_tk`) ada. Tombol **+ Tambah slot akun** membuat file akun baru. Butuh kata sandi admin kalau login diaktifkan.
 - **B. Edit file.** Buka `config/cookies_akun_N.txt` (atau salin `config/cookies.example.txt` dengan nama itu), lalu tempel
   di bawah baris `# nama:` salah satu format ini:
   - isi cookie mentah: `fd_tk=...; NEXT_LOCALE=id; ...`
   - satu baris header: `Cookie: fd_tk=...; ...`
-  - perintah cURL utuh
+  - perintah cURL utuh — "Copy as cURL (cmd)" Windows yang penuh tanda `^` maupun "(bash)", tempel apa adanya
+  - juga dikenali: "Copy as PowerShell", "Copy as fetch (Node.js)", ekspor JSON ekstensi cookie, tabel cookie DevTools
 
 Cara mengambil cookie: login di fastmoss.com dengan akun yang mau dipasang, buka DevTools (F12) lalu tab **Network**,
 muat ulang halaman, klik kanan salah satu request `/api/...`, lalu pilih **Copy → Copy as cURL**.
