@@ -441,17 +441,26 @@ function renderShell() {
     else items = c.menus.filter((m) => m.group === g).map((m) => navItem(`#/m/${m.key}`, m.title)).join("");
     return items ? `<div class="nav-group"><div class="nav-title">${esc(g)}</div>${items}</div>` : "";
   }).join("");
-  $("#app").innerHTML = `<div class="shell">
+  let collapsed = false;
+  try { collapsed = localStorage.getItem("fml.nav") === "0"; } catch (_) { /* */ }
+  $("#app").innerHTML = `<div class="shell${collapsed ? " nav-collapsed" : ""}">
     <aside class="sidebar" id="sb">
       <a class="brand" href="#/"><div class="brand-mark">F</div><div><div class="brand-name">FastMoss Lite</div><div class="brand-sub">TikTok Shop Intelligence</div></div></a>
       ${navItem("#/", "Beranda")}
       ${groups}
       <div class="nav-group"><div class="nav-title">Sistem</div>${navItem("#/settings", "Pengaturan & Cookie")}</div>
     </aside>
+    <div class="scrim" id="scrim"></div>
     <div class="main">
       <header class="topbar">
-        <button class="btn ghost menu-btn" id="menuBtn" aria-label="Menu">☰</button>
-        <form id="quick" class="grow" style="flex:1;min-width:0;max-width:520px"><input class="input" id="quickIn" style="width:100%" placeholder="Tempel link / ID produk, toko, kreator, video — atau ketik kata kunci produk"></form>
+        <button class="btn ghost menu-btn" id="menuBtn" aria-controls="sb" aria-label="Sembunyikan / tampilkan menu" title="Sembunyikan / tampilkan menu">☰</button>
+        <form id="quick" class="quick" role="search">
+          <svg class="quick-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input class="input" id="quickIn" type="search" enterkeyhint="search" autocomplete="off" aria-label="Cari"
+            placeholder="${isNarrow() ? "Cari produk / tempel link" : "Cari produk, atau tempel link / ID produk, toko, kreator, video"}"
+            title="Ketik kata kunci produk, atau tempel link / ID produk, toko, kreator, video — lalu tekan Enter">
+          <kbd class="quick-key hide-sm" title="Tekan / untuk mencari">/</kbd>
+        </form>
         <div class="spacer"></div>
         <select class="select" id="acct" title="Akun FastMoss yang dipakai"></select>
         <select class="select" id="region" title="Negara"></select>
@@ -461,7 +470,8 @@ function renderShell() {
       </header>
       <main class="content" id="content"></main>
     </div></div>`;
-  $("#menuBtn").addEventListener("click", () => $("#sb").classList.toggle("open"));
+  $("#menuBtn").addEventListener("click", toggleNav);
+  $("#scrim").addEventListener("click", () => $("#sb").classList.remove("open"));
   $("#themeBtn").addEventListener("click", toggleTheme);
   $("#logoutBtn")?.addEventListener("click", async () => {
     await api("/api/logout", {}, { method: "POST", noRegion: true }).catch(() => {});
@@ -474,12 +484,26 @@ function renderShell() {
   renderPlan();
 }
 
+// HP/tablet: menu samping melayang (buka-tutup); komputer: menu bisa disembunyikan & diingat
+const isNarrow = () => matchMedia("(max-width: 960px)").matches;
+function toggleNav() {
+  if (isNarrow()) { $("#sb").classList.toggle("open"); return; }
+  const off = $(".shell").classList.toggle("nav-collapsed");
+  try { localStorage.setItem("fml.nav", off ? "0" : "1"); } catch (_) { /* */ }
+  window.dispatchEvent(new Event("resize"));   // grafik ikut melebar/menyempit
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") $("#sb")?.classList.remove("open");
+  const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName) || e.target.isContentEditable;
+  if (e.key === "/" && !typing && !e.ctrlKey && !e.metaKey && !e.altKey && $("#quickIn")) { e.preventDefault(); $("#quickIn").focus(); }
+});
+
 const planShort = (a) => (!a.cookie?.exists ? "belum ada cookie" : !a.logged_in ? "cookie bermasalah" : a.is_free ? "gratis" : "berlangganan");
 function renderAccounts() {
   const sel = $("#acct");
   if (!sel) return;
   sel.hidden = S.accounts.length < 2;
-  sel.innerHTML = S.accounts.map((a) => `<option value="${esc(a.id)}" ${a.id === S.acc ? "selected" : ""}>${esc(a.label)} · ${planShort(a)}</option>`).join("");
+  sel.innerHTML = S.accounts.map((a) => `<option value="${esc(a.id)}" ${a.id === S.acc ? "selected" : ""}>${esc(a.label)}${String(a.label).toLowerCase().includes(planShort(a)) ? "" : ` · ${planShort(a)}`}</option>`).join("");
   sel.onchange = () => setAccount(sel.value);
 }
 
