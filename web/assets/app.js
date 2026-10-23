@@ -757,7 +757,13 @@ function fmtBy(type, v) {
   return type === "money" ? cur() + nfC.format(v) : nfC.format(v);
 }
 
+// FastMoss kadang mengirim deret lengkap tapi isinya nol semua (mis. akun tak aktif: 24 jam x 0 video);
+// grafik kosong dengan sumbu "0-1" membingungkan, jadi tampilkan keterangan saja.
+const ZERO_HTML = `<div class="empty">Semua nilainya 0 — belum ada aktivitas yang tercatat FastMoss pada periode ini.</div>`;
+const allZero = (vals) => vals.every((v) => !v);
+
 function lineChart(box, rows, x, series) {
+  if (series.every((s) => allZero(rows.map((r) => toNum(dig(r, s.key)))))) { box.innerHTML = ZERO_HTML; return; }
   if (!window.Chart) return fallbackTable(box, rows, [{ label: "Tanggal", type: "text", key: x }, ...series]);
   let idx = 0;
   box.innerHTML = `${series.length > 1 ? `<div class="seg" style="margin-bottom:10px;flex-wrap:wrap">${series.map((s, i) => `<button type="button" data-s="${i}" class="${i ? "" : "on"}">${esc(s.label)}</button>`).join("")}</div>` : ""}
@@ -804,6 +810,7 @@ function barChart(box, rows, x, series) {
   const ink = chartInk();
   const color = chartColor();
   const vals = rows.map(val);
+  if (allZero(vals)) { box.innerHTML = ZERO_HTML; return; }
   // banyak kategori berlabel pendek (mis. 24 jam) -> batang tegak supaya tidak memanjang ke bawah
   const upright = rows.length > 12 && rows.every((r) => label(r).length <= 8);
   const vAxis = upright ? "y" : "x";
