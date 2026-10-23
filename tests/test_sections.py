@@ -4,8 +4,8 @@ from app.details import DETAILS
 from app.market import PAGES
 from app.services import dig
 
-# bagian yang memang belum pernah berisi data dari FastMoss -> boleh digambar otomatis
-AUTO_OK = {"market.strategy.top3", "market.strategy.topGoods"}
+# bagian yang boleh digambar otomatis (tanpa definisi kolom)
+AUTO_OK: set[str] = set()
 
 
 def _all_sections():

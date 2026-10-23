@@ -767,6 +767,8 @@ function lineChart(box, rows, x, series) {
   const ctx = $("canvas", box);
   const color = chartColor();
   const data = (i) => rows.map((r) => toNum(dig(r, series[i].key)) ?? null);
+  // jumlah (bukan uang/rasio) yang semuanya bulat -> sumbu tanpa pecahan (hindari "2,5 video")
+  const whole = (i) => (series[i].type === "num" && data(i).every((v) => v == null || Number.isInteger(v)) ? 0 : undefined);
   const chart = new Chart(ctx, {
     type: "line",
     data: { labels: rows.map((r) => shortLabel(dig(r, x))), datasets: [{ label: series[0].label, data: data(0), borderColor: color, backgroundColor: color + "22", fill: true, borderWidth: 2, pointRadius: rows.length > 40 ? 0 : 3, pointHoverRadius: 5, tension: 0 }] },
@@ -775,7 +777,8 @@ function lineChart(box, rows, x, series) {
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${series[idx].label}: ${series[idx].type === "money" ? cur() : ""}${nfF.format(c.parsed.y)}` } } },
       scales: {
         x: { grid: { display: false }, ticks: { color: ink.text, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } },
-        y: { grid: { color: ink.grid }, border: { display: false }, ticks: { color: ink.text, callback: (v) => fmtBy(series[idx].type, v) } },
+        y: { grid: { color: ink.grid }, border: { display: false }, ticks: { color: ink.text, callback: (v) => fmtBy(series[idx].type, v),
+          precision: whole(0) } },
       },
     },
   });
@@ -785,6 +788,7 @@ function lineChart(box, rows, x, series) {
     $$("[data-s]", box).forEach((x2) => x2.classList.toggle("on", x2 === b));
     chart.data.datasets[0].data = data(idx);
     chart.data.datasets[0].label = series[idx].label;
+    chart.options.scales.y.ticks.precision = whole(idx);
     chart.update();
   }));
   mountTable($(".tbl", box), [{ label: "Waktu", type: "text", key: x }, ...series], rows);
@@ -799,15 +803,24 @@ function barChart(box, rows, x, series) {
   if (!window.Chart || !rows.length) return fallbackTable(box, rows, [{ label: "Label", type: "text", key: x }, ...series]);
   const ink = chartInk();
   const color = chartColor();
-  box.innerHTML = `<div class="chart-box" style="height:${Math.max(160, rows.length * 34 + 40)}px"><canvas></canvas></div>`;
+  const vals = rows.map(val);
+  // banyak kategori berlabel pendek (mis. 24 jam) -> batang tegak supaya tidak memanjang ke bawah
+  const upright = rows.length > 12 && rows.every((r) => label(r).length <= 8);
+  const vAxis = upright ? "y" : "x";
+  const whole = series[0].type === "num" && vals.every((v) => Number.isInteger(v));
+  box.innerHTML = `<div class="chart-box" style="height:${upright ? 240 : Math.max(160, rows.length * 34 + 40)}px"><canvas></canvas></div>`;
+  const valueTicks = { color: ink.text, callback: (v) => fmtBy(series[0].type, v), ...(whole ? { precision: 0 } : {}) };
   const chart = new Chart($("canvas", box), {
     type: "bar",
-    data: { labels: rows.map((r) => shortLabel(label(r))), datasets: [{ label: series[0].label, data: rows.map(val), backgroundColor: color, borderRadius: 4, borderSkipped: "start", barThickness: 18 }] },
+    data: { labels: rows.map((r) => shortLabel(label(r))), datasets: [{ label: series[0].label, data: vals, backgroundColor: color, borderRadius: 4, borderSkipped: "start", maxBarThickness: 18 }] },
     options: {
-      indexAxis: "y", responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${series[0].label}: ${series[0].type === "money" ? cur() : ""}${nfF.format(c.parsed.x)}` } } },
-      scales: { x: { grid: { color: ink.grid }, border: { display: false }, ticks: { color: ink.text, callback: (v) => fmtBy(series[0].type, v) } },
-        y: { grid: { display: false }, ticks: { color: ink.text } } },
+      indexAxis: upright ? "x" : "y", responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${series[0].label}: ${series[0].type === "money" ? cur() : ""}${nfF.format(c.parsed[vAxis])}` } } },
+      scales: {
+        [vAxis]: { grid: { color: ink.grid }, border: { display: false }, beginAtZero: true, ticks: valueTicks,
+          ...(series[0].type === "money" ? { min: 0 } : {}) },   // omzet tak mungkin minus (sisa "Lainnya" kadang minus)
+        [upright ? "x" : "y"]: { grid: { display: false }, ticks: { color: ink.text, autoSkip: upright, maxRotation: 0 } },
+      },
     },
   });
   charts.add(chart);
