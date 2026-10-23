@@ -152,8 +152,10 @@ function labelText(v) {
   return LABEL_ID[s] || LABEL_ID[s.toUpperCase()] || s;
 }
 
-const DETAIL_KINDS = new Set(["product", "shop", "creator", "live", "video"]);
+const DETAIL_KINDS = new Set(["product", "shop", "creator", "live", "video", "ad", "advertiser", "agency"]);
 const ROUND = new Set(["creator"]);
+// Detail tanpa profil dari FastMoss (agensi): nama dibawa lewat tautan (?n=) untuk judul halaman.
+const NAME_IN_LINK = new Set(["agency"]);
 
 function spark(list, x, y) {
   if (!Array.isArray(list) || list.length < 2) return "–";
@@ -173,7 +175,10 @@ function entity(col, row) {
   const ext = col.url ? dig(row, col.url) : "";
   const t = blank(title) ? "(tanpa judul)" : (Array.isArray(title) ? title.join(", ") : title);
   let head;
-  if (col.link && id) head = `<a class="t" href="#/detail/${col.link}/${esc(id)}" title="${esc(t)}">${esc(t)}</a>`;
+  if (col.link && id) {
+    const nq = NAME_IN_LINK.has(col.link) && !blank(title) ? `?n=${encodeURIComponent(t)}` : "";
+    head = `<a class="t" href="#/detail/${col.link}/${esc(id)}${esc(nq)}" title="${esc(t)}">${esc(t)}</a>`;
+  }
   else if (ext) head = `<a class="t" href="${esc(ext)}" target="_blank" rel="noopener" title="${esc(t)}">${esc(t)}</a>`;
   else head = `<span class="t" title="${esc(t)}">${esc(t)}</span>`;
   const pic = col.img ? (img ? `<img src="${esc(img)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="ph"></span>`) : "";
@@ -391,6 +396,8 @@ function route() {
   if (page === "market" && parts[1]) return pageMarket(el, parts[1], q);
   if (page === "detail" && parts[1] && parts[2]) return pageDetail(el, parts[1], parts[2], q);
   if (page === "settings") return pageSettings(el, q);
+  if (page === "monitor") return pageMonitor(el, q);
+  if (page === "dashboard") return pageDashboard(el);
   return pageHome(el);
 }
 
@@ -436,9 +443,7 @@ function navItem(href, label) {
 function renderShell() {
   const c = S.catalog;
   const groups = c.groups.map((g) => {
-    let items;
-    if (g === "Tren Pasar") items = c.market.map((p) => navItem(`#/market/${p.key}`, p.title)).join("");
-    else items = c.menus.filter((m) => m.group === g).map((m) => navItem(`#/m/${m.key}`, m.title)).join("");
+    const items = groupItems(g).map((i) => navItem(i.href, i.t)).join("");
     return items ? `<div class="nav-group"><div class="nav-title">${esc(g)}</div>${items}</div>` : "";
   }).join("");
   let collapsed = false;
@@ -447,6 +452,7 @@ function renderShell() {
     <aside class="sidebar" id="sb">
       <a class="brand" href="#/"><div class="brand-mark">F</div><div><div class="brand-name">FastMoss Lite</div><div class="brand-sub">TikTok Shop Intelligence</div></div></a>
       ${navItem("#/", "Beranda")}
+      ${navItem("#/dashboard", "Dasbor Ringkas")}
       ${groups}
       <div class="nav-group"><div class="nav-title">Sistem</div>${navItem("#/settings", "Pengaturan & Cookie")}</div>
     </aside>
@@ -482,6 +488,17 @@ function renderShell() {
   renderAccounts();
   renderRegion();
   renderPlan();
+}
+
+// Isi satu grup menu: menu daftar + halaman pasar ber-grup sama (+ Monitor di grup Video).
+function groupItems(g) {
+  const c = S.catalog;
+  const items = [
+    ...c.menus.filter((m) => m.group === g).map((m) => ({ href: `#/m/${m.key}`, t: m.title, d: m.desc })),
+    ...c.market.filter((p) => (p.group || "Tren Pasar") === g).map((p) => ({ href: `#/market/${p.key}`, t: p.title, d: p.desc })),
+  ];
+  if (g === "Video") items.push({ href: "#/monitor", t: "Monitor Video", d: "Pantau pertumbuhan tayangan & suka video per jam (memakai kuota monitor akun FastMoss)." });
+  return items;
 }
 
 // HP/tablet: menu samping melayang (buka-tutup); komputer: menu bisa disembunyikan & diingat
@@ -539,7 +556,9 @@ function quickJump(text) {
   const pats = [
     [/e-commerce\/detail\/(\d+)/, "product"], [/shop-marketing\/detail\/(\d+)/, "shop"],
     [/influencer\/detail\/(\d+)/, "creator"], [/live\/detail\/(\d+)/, "live"],
-    [/media-source\/video\/(\d+)/, "video"], [/\/product\/(\d{12,})/, "product"], [/\/video\/(\d{12,})/, "video"],
+    [/media-source\/video\/(\d+)/, "video"], [/creativecenter\/newdetail\/([\w-]+)/, "ad"],
+    [/creativecenter\/advertiserDetail\/([\w-]+)/, "advertiser"], [/agency\/mcn\/detail\/([\w-]+)/, "agency"],
+    [/\/product\/(\d{12,})/, "product"], [/\/video\/(\d{12,})/, "video"],
   ];
   for (const [re, kind] of pats) {
     const m = text.match(re);
@@ -554,15 +573,15 @@ function quickJump(text) {
 function pageHome(el) {
   const c = S.catalog;
   const tiles = c.groups.map((g) => {
-    const items = g === "Tren Pasar"
-      ? c.market.map((p) => ({ href: `#/market/${p.key}`, t: p.title, d: p.desc }))
-      : c.menus.filter((m) => m.group === g).map((m) => ({ href: `#/m/${m.key}`, t: m.title, d: m.desc }));
+    const items = groupItems(g);
+    if (!items.length) return "";
     return `<h2 style="font-size:15px;margin:26px 0 10px">${esc(g)}</h2><div class="menu-tiles">`
       + items.map((i) => `<a class="card tile" href="${i.href}"><div class="t">${esc(i.t)}</div><div class="d">${esc(i.d)}</div></a>`).join("")
       + `</div>`;
   }).join("");
   el.innerHTML = `<div class="page-head"><div><div class="crumb">Beranda</div><h1>Selamat datang 👋</h1>
-      <p>Data TikTok Shop dari FastMoss — produk, toko, kreator, LIVE, video, iklan, dan tren pasar. Mata uang mengikuti negara terpilih.</p></div></div>
+      <p>Data TikTok Shop dari FastMoss — produk, toko, kreator, LIVE, video, iklan, dan tren pasar. Mata uang mengikuti negara terpilih.</p></div>
+      <a class="btn" href="#/dashboard">Dasbor ringkas ›</a></div>
     <div id="homeAcc"></div>${tiles}`;
   const acc = $("#homeAcc", el);
   const draw = () => {
@@ -580,8 +599,31 @@ function pageHome(el) {
 }
 
 // ============================================================ kontrol filter
+const pad2 = (n) => String(n).padStart(2, "0");
+const isoDay = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const localDay = (v) => (typeof v === "string" ? new Date(`${v.slice(0, 10)}T00:00:00`) : new Date(v));
+const daysAgo = (n, from = new Date()) => { const d = localDay(from); d.setDate(d.getDate() - n); return isoDay(d); };
+const dayDiff = (a, b) => Math.round((new Date(b) - new Date(a)) / 864e5);
+function isoWeek(d) {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));
+  const y = t.getUTCFullYear();
+  return `${y}-W${pad2(Math.ceil(((t - Date.UTC(y, 0, 1)) / 864e5 + 1) / 7))}`;
+}
 function weekToInput(v) { const m = /^(\d{4})-(\d{1,2})$/.exec(v || ""); return m ? `${m[1]}-W${m[2].padStart(2, "0")}` : ""; }
 function inputToWeek(v) { const m = /^(\d{4})-W(\d{2})$/.exec(v || ""); return m ? `${m[1]}-${m[2]}` : ""; }
+// "-15" = 15 hari lalu; "2022-07-31" = tanggal tetap (sama dengan aturan server)
+const dayBound = (spec) => (!spec ? "" : /^-?\d+$/.test(String(spec)) ? daysAgo(Math.abs(+spec)) : String(spec));
+// Kalender periode: paling awal `min`, paling lambat periode lengkap terakhir (kemarin / minggu lalu / bulan lalu).
+function periodBounds(dt, min) {
+  const now = new Date();
+  if (dt === "2") return { min: min ? isoWeek(localDay(min)) : "", max: isoWeek(new Date(now.getTime() - 7 * 864e5)) };
+  if (dt === "3") {
+    const last = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    return { min: min ? String(min).slice(0, 7) : "", max: `${last.getFullYear()}-${pad2(last.getMonth() + 1)}` };
+  }
+  return { min: min || "", max: daysAgo(1) };
+}
 
 function optionList(opts, key) {
   if (!opts) return [];
@@ -594,82 +636,217 @@ function selectHTML(param, label, list, value, extra = "") {
     + `</select></div>`;
 }
 
-/**
- * Gambar kontrol menu ke `wrap` (baris utama) & `adv` (filter lanjutan).
- * `state` diubah langsung; `apply()` dipanggil saat pengguna memilih.
- */
-async function mountControls(controls, state, wrap, adv, apply, applied = {}) {
-  const sources = [...new Set(controls.filter((c) => c.source).map((c) => c.source))];
-  const loaded = Object.fromEntries(await Promise.all(sources.map(async (s) => [s, await getOptions(s)])));
-  const parts = { main: [], adv: [] };
-  for (const c of controls) {
-    let html = "";
-    if (c.kind === "text") {
-      html = `<div class="field grow"><label>${esc(c.label)}</label><input class="input" data-param="${esc(c.param)}" value="${esc(state[c.param] || "")}" placeholder="Ketik lalu Enter"></div>`;
-    } else if (c.kind === "select") {
-      const val = state[c.param] ?? c.default;
-      html = `<div class="field"><label>${esc(c.label)}</label><select class="select" data-param="${esc(c.param)}">`
-        + c.options.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(val) ? "selected" : ""}>${esc(l)}</option>`).join("") + `</select></div>`;
-    } else if (c.kind === "period") {
-      const dt = String(state.date_type || c.default || 1);
-      const val = state.date_value || applied.date_value || "";
-      const input = dt === "2" ? `<input class="input" type="week" data-period="2" value="${esc(weekToInput(val))}">`
-        : dt === "3" ? `<input class="input" type="month" data-period="3" value="${esc(val)}">`
-          : `<input class="input" type="date" data-period="1" value="${esc(val)}">`;
-      html = `<div class="field"><label>${esc(c.label)}</label><div class="period"><div class="seg">`
-        + c.options.map(([v, l]) => `<button type="button" data-dt="${v}" class="${String(v) === dt ? "on" : ""}">${esc(l)}</button>`).join("")
-        + `</div>${input}</div></div>`;
-    } else if (c.kind === "date") {
-      const val = state[c.params[0]] || applied[c.params[0]] || "";
-      html = `<div class="field"><label>${esc(c.label)}</label><input class="input" type="date" data-date="${esc(c.params.join(","))}" value="${esc(val)}"></div>`;
-    } else if (c.kind === "category") {
-      const tree = optionList(loaded[c.source], "category");
-      let list = tree, cells = "";
-      c.levels.forEach((lv, i) => {
-        if (i > 0 && !list.length) return;
-        const v = state[lv] || "";
-        cells += selectHTML(lv, ["Kategori", "Sub-kategori", "Kategori detail"][i] || lv, list, v, `data-cat="${i}"`);
-        const picked = list.find((o) => String(o.v) === String(v));
-        list = picked && picked.sub ? picked.sub : [];
-      });
-      html = cells;
-    } else if (c.kind === "dynselect") {
-      html = selectHTML(c.param, c.label, optionList(loaded[c.source], c.key), state[c.param]);
-    }
-    parts[c.advanced ? "adv" : "main"].push(html);
+// Nilai kontrol yang berlaku (pilihan pengguna, atau bawaan) — dipakai untuk kontrol bersyarat & label dinamis.
+function ctlValues(controls, state) {
+  const v = {};
+  for (const c of controls) if (c.default != null && c.default !== "auto") v[c.param] = c.default;
+  return { ...v, ...state };
+}
+const ctlActive = (c, vals) => Object.entries(c.when || {}).every(([k, want]) =>
+  (Array.isArray(want) ? want : [want]).map(String).includes(String(vals[k] ?? "")));
+// Label bertemplat dari katalog, mis. "Terjual {last_date_type} hari".
+const fillTpl = (s, vals) => String(s ?? "").replace(/\{(\w+)\}/g, (m, k) => (vals[k] != null ? vals[k] : m));
+
+// Pilihan banyak (centang) dan/atau rentang Min–Maks sendiri ("min,max", -1 = tanpa batas atas).
+function mselHTML(c, i, list, value) {
+  const cur = String(value ?? "");
+  const known = new Set(list.map((o) => String(o.v)));
+  const picked = c.multi ? cur.split(",").filter((x) => known.has(x)) : (known.has(cur) ? [cur] : []);
+  const custom = c.custom && cur && !picked.length && /^-?[\d.]+,-?[\d.]+$/.test(cur) ? cur.split(",") : null;
+  const txt = custom ? `${custom[0]} – ${custom[1] === "-1" ? "∞" : custom[1]}`
+    : picked.length > 1 ? `${picked.length} dipilih` : picked.length ? (list.find((o) => String(o.v) === picked[0])?.l || picked[0]) : "Semua";
+  const type = c.multi ? "checkbox" : "radio";
+  return `<div class="field"><label>${esc(c.label)}</label><details class="msel" data-ci="${i}"><summary class="select">${esc(txt)}</summary><div class="msel-pop">`
+    + list.map((o) => `<label class="msel-opt"><input type="${type}" name="ms${i}" value="${esc(o.v)}" ${picked.includes(String(o.v)) ? "checked" : ""}> ${esc(o.l)}</label>`).join("")
+    + (c.custom ? `<div class="msel-mm"><input class="input" type="number" inputmode="decimal" placeholder="Min." data-mm="0" value="${esc(custom ? custom[0] : "")}">`
+      + `<span>–</span><input class="input" type="number" inputmode="decimal" placeholder="Maks." data-mm="1" value="${esc(custom && custom[1] !== "-1" ? custom[1] : "")}"></div>` : "")
+    + `<div class="msel-act"><button type="button" class="btn sm ghost" data-ms-clr>Hapus</button><button type="button" class="btn sm primary" data-ms-ok>Terapkan</button></div>`
+    + `</div></details></div>`;
+}
+
+function ctlHTML(c, i, state, loaded, applied) {
+  const label = esc(c.label);
+  if (c.kind === "text") {
+    return `<div class="field grow"><label>${label}</label><input class="input" data-param="${esc(c.param)}" value="${esc(state[c.param] || "")}" placeholder="Ketik lalu Enter"></div>`;
   }
+  if (c.kind === "select") {
+    const val = state[c.param] ?? c.default;
+    return `<div class="field"><label>${label}</label><select class="select" data-param="${esc(c.param)}">`
+      + c.options.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(val) ? "selected" : ""}>${esc(l)}</option>`).join("") + `</select></div>`;
+  }
+  if (c.kind === "view") {
+    const val = String(state[c.param] ?? c.default);
+    return `<div class="field"><label>${label}</label><div class="seg">`
+      + c.options.map(([v, l]) => `<button type="button" data-set="${esc(c.param)}" data-v="${esc(v)}" class="${String(v) === val ? "on" : ""}">${esc(l)}</button>`).join("") + `</div></div>`;
+  }
+  if (c.kind === "period") {
+    const dt = String(state.date_type || c.default || 1);
+    const val = state.date_value || applied.date_value || "";
+    const b = periodBounds(dt, c.min);
+    const lim = `min="${esc(b.min)}" max="${esc(b.max)}"`;
+    const picker = !c.picker?.length || c.picker.map(String).includes(dt);
+    const input = !picker ? "" : dt === "2" ? `<input class="input" type="week" data-period="2" ${lim} value="${esc(weekToInput(val))}">`
+      : dt === "3" ? `<input class="input" type="month" data-period="3" ${lim} value="${esc(val)}">`
+        : `<input class="input" type="date" data-period="1" ${lim} value="${esc(val)}">`;
+    return `<div class="field"><label>${label}</label><div class="period"><div class="seg">`
+      + c.options.map(([v, l]) => `<button type="button" data-dt="${v}" class="${String(v) === dt ? "on" : ""}">${esc(l)}</button>`).join("")
+      + `</div>${input}</div></div>`;
+  }
+  if (c.kind === "date") {
+    const val = state[c.params[0]] || applied[c.params[0]] || "";
+    return `<div class="field"><label>${label}</label><input class="input" type="date" data-date="${esc(c.params.join(","))}" min="${esc(dayBound(c.min))}" max="${esc(daysAgo(c.offset))}" value="${esc(val)}"></div>`;
+  }
+  if (c.kind === "range") {
+    const [p0, p1] = c.params;
+    const lim = `min="${esc(dayBound(c.min))}" max="${esc(daysAgo(c.offset))}"`;
+    const s = state[p0] || applied[p0] || "", e = state[p1] || applied[p1] || "";
+    return `<div class="field"><label>${label}${c.max_days ? ` <span class="faint">(maks. ${c.max_days} hari)</span>` : ""}</label><div class="range" data-ci="${i}">`
+      + `<input class="input" type="date" data-rg="0" ${lim} value="${esc(s)}"><span>–</span><input class="input" type="date" data-rg="1" ${lim} value="${esc(e)}">`
+      + (c.default === "auto" || !(state[p0] || state[p1]) ? "" : `<button type="button" class="btn sm ghost" data-rg-clr title="Hapus rentang">✕</button>`)
+      + `</div></div>`;
+  }
+  if (c.kind === "dperiod") {
+    const v = String(state[c.param] ?? c.default ?? "");
+    const custom = v === "custom";
+    const lim = `min="${esc(dayBound(c.min))}" max="${esc(daysAgo(c.offset))}"`;
+    return `<div class="field"><label>${label}</label><div class="range" data-ci="${i}"><select class="select" data-dp>`
+      + c.options.map(([o, l]) => `<option value="${esc(o)}" ${String(o) === v ? "selected" : ""}>${esc(l)}</option>`).join("")
+      + `<option value="custom" ${custom ? "selected" : ""}>Rentang kustom…</option></select>`
+      + (custom ? `<input class="input" type="date" data-rg="0" ${lim} value="${esc(state[c.span[0]] || "")}"><span>–</span>`
+        + `<input class="input" type="date" data-rg="1" ${lim} value="${esc(state[c.span[1]] || "")}">` : "")
+      + `</div></div>`;
+  }
+  if (c.kind === "category") {
+    const tree = optionList(loaded[c.source], c.key || "category");
+    let list = tree, cells = "";
+    c.levels.forEach((lv, li) => {
+      if (li > 0 && !list.length) return;
+      const v = state[lv] || "";
+      cells += selectHTML(lv, [c.label || "Kategori", "Sub-kategori", "Kategori detail"][li] || lv, list, v, `data-cat="${li}" data-ci="${i}"`);
+      const picked = list.find((o) => String(o.v) === String(v));
+      list = picked && picked.sub ? picked.sub : [];
+    });
+    return cells;
+  }
+  if (c.kind === "dynselect") {
+    const list = optionList(loaded[c.source], c.key);
+    if (c.multi || c.custom) return mselHTML(c, i, list, state[c.param]);
+    return selectHTML(c.param, c.label, list, state[c.param]);
+  }
+  return "";
+}
+
+/**
+ * Gambar kontrol ke `wrap` (baris utama) & `adv` (filter lanjutan).
+ * `state` diubah langsung; `apply()` dipanggil saat pengguna memilih.
+ * `optFor(source)` memuat opsi; sumber "@nama" = opsi milik halaman detail.
+ */
+async function mountControls(controls, state, wrap, adv, apply, applied = {}, optFor = getOptions) {
+  const sources = [...new Set(controls.filter((c) => c.source).map((c) => c.source))];
+  const loaded = Object.fromEntries(await Promise.all(sources.map(async (s) => [s, await optFor(s)])));
+  const vals = ctlValues(controls, state);
+  const parts = { main: [], adv: [] };
+  controls.forEach((c, i) => {
+    if (ctlActive(c, vals)) parts[c.advanced ? "adv" : "main"].push(ctlHTML(c, i, state, loaded, applied));
+  });
   wrap.insertAdjacentHTML("afterbegin", parts.main.join(""));
   if (adv) adv.innerHTML = parts.adv.join("");
   const scope = [wrap, adv].filter(Boolean);
   const each = (sel, fn) => scope.forEach((s) => $$(sel, s).forEach(fn));
+  const ctlOf = (el) => controls[+el.closest("[data-ci]").dataset.ci];
+  // param lain yang hanya berlaku bila kontrol ini bernilai tertentu → buang saat pemicunya berubah
+  const dropDependents = (param) => controls.filter((c) => c.when && param in c.when).forEach((c) => {
+    (c.kind === "category" ? c.levels : c.kind === "range" ? c.params : [c.param]).forEach((p) => delete state[p]);
+  });
 
   each("select[data-param]", (s) => s.addEventListener("change", () => {
     state[s.dataset.param] = s.value;
-    if (s.dataset.cat != null) {
-      const ctl = controls.find((c) => c.kind === "category");
-      ctl.levels.slice(+s.dataset.cat + 1).forEach((lv) => delete state[lv]);
-    }
+    if (s.dataset.cat != null) ctlOf(s).levels.slice(+s.dataset.cat + 1).forEach((lv) => delete state[lv]);
+    dropDependents(s.dataset.param);
     apply();
   }));
   each("input[data-param]", (i) => i.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { state[i.dataset.param] = i.value.trim(); apply(); }
   }));
   each("input[data-param]", (i) => i.addEventListener("change", () => { state[i.dataset.param] = i.value.trim(); }));
+  each("[data-set]", (b) => b.addEventListener("click", () => {
+    state[b.dataset.set] = b.dataset.v;
+    dropDependents(b.dataset.set);
+    apply();
+  }));
   each("[data-dt]", (b) => b.addEventListener("click", () => {
     state.date_type = b.dataset.dt;
     delete state.date_value;
     apply();
   }));
   each("input[data-period]", (i) => i.addEventListener("change", () => {
+    if (!i.value) return;
+    if ((i.min && i.value < i.min) || (i.max && i.value > i.max)) { toast(`Pilih periode antara ${i.min || "awal"} dan ${i.max}.`); return; }
     state.date_value = i.dataset.period === "2" ? inputToWeek(i.value) : i.value;
     apply();
   }));
   each("input[data-date]", (i) => i.addEventListener("change", () => {
+    if (!i.value) return;
+    if ((i.min && i.value < i.min) || (i.max && i.value > i.max)) { toast(`Pilih tanggal antara ${i.min || "awal"} dan ${i.max}.`); return; }
     i.dataset.date.split(",").forEach((p) => { state[p] = i.value; });
     apply();
   }));
+  // rentang tanggal (range & rentang kustom dperiod): terapkan setelah kedua tanggal terisi & sah
+  each("input[data-rg]", (i) => i.addEventListener("change", () => {
+    const c = ctlOf(i);
+    const box = i.closest("[data-ci]");
+    let [s, e] = [0, 1].map((k) => $(`input[data-rg="${k}"]`, box).value);
+    if (!s || !e) return;
+    if (s > e) [s, e] = [e, s];
+    const max = daysAgo(c.offset), min = dayBound(c.min);
+    if (e > max) { toast(`Tanggal akhir paling lambat ${max}.`); return; }
+    if (min && s < min) { toast(`Tanggal awal paling cepat ${min}.`); return; }
+    if (c.max_days && dayDiff(s, e) + 1 > c.max_days) { toast(`Rentang tanggal maksimal ${c.max_days} hari.`); return; }
+    const [p0, p1] = c.kind === "dperiod" ? c.span : c.params;
+    state[p0] = s;
+    state[p1] = e;
+    apply();
+  }));
+  each("[data-rg-clr]", (b) => b.addEventListener("click", () => {
+    ctlOf(b).params.forEach((p) => delete state[p]);
+    apply();
+  }));
+  each("select[data-dp]", (s) => s.addEventListener("change", () => {
+    const c = ctlOf(s);
+    state[c.param] = s.value;
+    if (s.value === "custom") {   // isi awal: 30 hari terakhir (atau batas maksimalnya)
+      const end = daysAgo(c.offset);
+      state[c.span[0]] = daysAgo(Math.min(29, (c.max_days || 30) - 1), end);
+      state[c.span[1]] = end;
+    } else c.span.forEach((p) => delete state[p]);
+    apply();
+  }));
+  each("details.msel", (d) => {
+    const c = ctlOf(d);
+    $("[data-ms-ok]", d).addEventListener("click", () => {
+      const mm = $$("input[data-mm]", d).map((x) => x.value.trim());
+      if (mm.some(Boolean)) {
+        const lo = mm[0] || "0", hi = mm[1] || "-1";
+        if (hi !== "-1" && +hi < +lo) { toast("Nilai maksimal harus lebih besar dari minimal."); return; }
+        state[c.param] = `${lo},${hi}`;
+      } else {
+        const v = $$("input[name]:checked", d).map((x) => x.value).join(",");
+        if (v) state[c.param] = v; else delete state[c.param];
+      }
+      apply();
+    });
+    $("[data-ms-clr]", d).addEventListener("click", () => { delete state[c.param]; apply(); });
+    // pilih opsi daftar = kosongkan Min–Maks, dan sebaliknya
+    $$("input[name]", d).forEach((x) => x.addEventListener("change", () => $$("input[data-mm]", d).forEach((m) => { m.value = ""; })));
+    $$("input[data-mm]", d).forEach((x) => x.addEventListener("input", () => $$("input[name]", d).forEach((m) => { m.checked = false; })));
+  });
   return parts.adv.length;
 }
+
+// tutup popup pilihan-banyak saat klik di luar
+document.addEventListener("click", (e) => {
+  $$("details.msel[open]").forEach((d) => { if (!d.contains(e.target)) d.open = false; });
+});
 
 // ============================================================ halaman daftar (menu)
 async function pageList(el, key, q) {
@@ -680,10 +857,13 @@ async function pageList(el, key, q) {
   const page = Math.max(1, parseInt(q.page || "1", 10));
   const free = S.account ? S.account.is_free : true;
   const apply = () => { delete state.page; go(`/m/${key}`, state); };
+  const vals = ctlValues(menu.controls, state);
+  const sorts = menu.sorts.map(([v, l]) => [v, fillTpl(l, vals)]);
+  const columns = menu.columns.map((c) => ({ ...c, label: fillTpl(c.label, vals) }));
 
   el.innerHTML = `<div class="page-head"><div><div class="crumb">${esc(menu.group)}</div><h1>${esc(menu.title)}</h1><p>${esc(menu.desc)}</p></div></div>
     <div class="card"><div class="filters" id="flt">
-        ${menu.sorts.length ? `<div class="field"><label>Urutkan</label><select class="select" id="sortSel">${menu.sorts.map(([v, l]) => `<option value="${esc(v)}" ${String(state.order || menu.sorts[0][0]) === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></div>` : ""}
+        ${sorts.length ? `<div class="field"><label>Urutkan</label><select class="select" id="sortSel">${sorts.map(([v, l]) => `<option value="${esc(v)}" ${String(state.order || sorts[0][0]) === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></div>` : ""}
         <div class="field" style="min-width:auto;flex-direction:row;gap:8px;align-items:flex-end">
           <button class="btn primary" id="applyBtn">Terapkan</button>
           <button class="btn" id="advBtn" style="display:none">Filter lanjutan</button>
@@ -710,11 +890,11 @@ async function pageList(el, key, q) {
   $("#pagesSel", el)?.addEventListener("change", drawExp);
 
   const dataP = api(`/api/list/${key}`, q).catch((e) => ({ status: "error", message: e.message, rows: [] }));
-  const nAdv = await mountControls(menu.controls, state, $("#flt", el), $("#adv", el), apply);
+  const nAdv = await mountControls(menu.controls, state, $("#flt", el), $("#adv", el), apply, q);
   if (token !== S.token) return;
   if (nAdv) {
     const btn = $("#advBtn", el);
-    const active = menu.controls.filter((c) => c.advanced && state[c.param]).length;
+    const active = menu.controls.filter((c) => c.advanced && ctlActive(c, vals) && ctlParams(c).some((p) => state[p])).length;
     btn.style.display = "";
     btn.textContent = `Filter lanjutan${active ? ` (${active})` : ""}`;
     if (active) $("#adv", el).classList.add("open");
@@ -727,6 +907,11 @@ async function pageList(el, key, q) {
   const pin = $("input[data-period]", el);
   if (pin && !pin.value && res.params?.date_value) pin.value = pin.dataset.period === "2" ? weekToInput(res.params.date_value) : res.params.date_value;
   $$("input[data-date]", el).forEach((i) => { if (!i.value) i.value = res.params?.[i.dataset.date.split(",")[0]] || ""; });
+  $$(".range[data-ci]", el).forEach((box) => {
+    const c = menu.controls[+box.dataset.ci];
+    const ps = c.kind === "dperiod" ? c.span : c.params;
+    $$("input[data-rg]", box).forEach((i) => { if (!i.value) i.value = res.params?.[ps[+i.dataset.rg]] || ""; });
+  });
 
   $("#msg", el).innerHTML = (res.fallback ? `<div class="banner info"><span class="ico">ℹ️</span><div>${esc(res.message)}</div></div>` : "") + statusBanner(res, true);
   $("[data-retry]", el)?.addEventListener("click", () => route());
@@ -742,7 +927,7 @@ async function pageList(el, key, q) {
   if (res.update_at) bits.push(`diperbarui ${typeof res.update_at === "number" ? fmtTs(res.update_at) : esc(res.update_at)}`);
   if (res.cached) bits.push("dari cache");
   $("#info", el).innerHTML = bits.join(" · ");
-  mountTable($("#tbl", el), menu.columns, res.rows, { offset: (page - 1) * menu.pagesize });
+  mountTable($("#tbl", el), columns, res.rows, { offset: (page - 1) * menu.pagesize });
   $("#foot", el).innerHTML = lockedRowsNote(res);
 
   const lastPage = res.total ? Math.ceil(res.total / menu.pagesize) : null;
@@ -864,19 +1049,32 @@ function fallbackTable(box, rows, cols) {
 // ============================================================ penggambar bagian (detail & pasar)
 function kpiHTML(fields, data) {
   if (!data || typeof data !== "object") return `<div class="empty">Tidak ada data.</div>`;
-  let items = fields.map((f) => ({ l: f.label, v: cell(f, data) }));
+  let items = fields.map((f) => ({ l: f.label, v: cell(f, data), h: f.hint }));
   if (!items.length) {
     items = autoFields(data, 16).map((f) => ({ l: f.label, v: !blank(f.show) ? esc(f.show) : f.num ? fmtNum(data[f.k]) : esc(data[f.k]) }));
   }
   if (!items.length) return `<div class="empty">Tidak ada data.</div>`;
-  return `<div class="grid k4">${items.map((i) => `<div class="kpi card" style="box-shadow:none"><div class="l">${esc(i.l)}</div><div class="v num">${i.v}</div></div>`).join("")}</div>`;
+  return `<div class="grid k4">${items.map((i) => `<div class="kpi card" style="box-shadow:none"${i.h ? ` title="${esc(i.h)}"` : ""}><div class="l">${esc(i.l)}</div><div class="v num">${i.v}</div></div>`).join("")}</div>`;
 }
 
 function kvHTML(fields, data) {
   return `<div class="kv">${fields.map((f) => `<div><span>${esc(f.label)}</span><span>${cell(f, data)}</span></div>`).join("")}</div>`;
 }
 
-function heroHTML(sec, data, kind, id) {
+// Daftar teks sederhana (poin penjualan, tanggal tayang iklan, …)
+function listHTML(fields, data) {
+  const rows = Array.isArray(data) ? data : [];
+  if (!rows.length) return `<div class="empty">Tidak ada data.</div>`;
+  const f = fields[0];
+  const item = (r) => (f && f.key ? cell(f, r)
+    : typeof r === "object" && r ? esc(Object.values(r).filter((v) => !blank(v) && typeof v !== "object").join(" — "))
+      : (toNum(r) != null && toNum(r) > 1e9 ? fmtTs(r, false) : esc(r)));
+  return `<ul class="plain-list">${rows.map((r) => `<li>${item(r)}</li>`).join("")}</ul>`;
+}
+
+const fmLink = (det, id) => (det.fm_path ? `https://www.fastmoss.com/id/${det.fm_path}/${encodeURIComponent(id)}` : "");
+
+function heroHTML(sec, data, det, id) {
   const p = sec.profile || {};
   const title = dig(data, p.title) || "(tanpa nama)";
   const img = dig(data, p.img);
@@ -886,118 +1084,245 @@ function heroHTML(sec, data, kind, id) {
   const tagList = (p.tags || []).flatMap((t) => { const v = dig(data, t); return blank(v) ? [] : (Array.isArray(v) ? v : [v]); });
   let ext = p.url ? dig(data, p.url) : "";
   if (p.url_tpl) ext = p.url_tpl.replace(/\{(\w+)\}/g, (_, k) => encodeURIComponent(dig(data, k) ?? ""));
-  const fmPath = { product: "e-commerce/detail", shop: "shop-marketing/detail", creator: "influencer/detail", live: "live/detail", video: "media-source/video" }[kind];
+  const fm = fmLink(det, id);
   return `<div class="card"><div class="hero ${p.round ? "round" : ""}">
       ${img ? `<img src="${esc(img)}" alt="" referrerpolicy="no-referrer">` : ""}
-      <div style="flex:1;min-width:240px"><h1>${esc(title)}</h1>
+      <div style="flex:1;min-width:240px"><h1>${esc(Array.isArray(title) ? title.join(", ") : title)}</h1>
         ${sub ? `<div class="muted" style="margin-top:4px">${subLink ? `<a href="#/detail/${p.sub_link[0]}/${esc(subLink)}" style="text-decoration:underline">${esc(sub)}</a>` : esc(sub)}</div>` : ""}
-        <div class="meta">${[...new Set(tagList)].slice(0, 6).map((t) => `<span class="pill">${esc(t)}</span>`).join("")}</div>
+        <div class="meta">${[...new Set(tagList)].slice(0, 6).map((t) => `<span class="pill">${esc(labelText(t))}</span>`).join("")}</div>
         <div class="meta" style="margin-top:10px">
           ${ext ? `<a class="btn sm" href="${esc(ext)}" target="_blank" rel="noopener">Buka di TikTok ↗</a>` : ""}
-          <a class="btn sm" href="https://www.fastmoss.com/id/${fmPath}/${esc(id)}" target="_blank" rel="noopener">Buka di FastMoss ↗</a>
+          ${fm ? `<a class="btn sm" href="${esc(fm)}" target="_blank" rel="noopener">Buka di FastMoss ↗</a>` : ""}
         </div></div></div>
     <div style="padding:0 20px 18px">${kpiHTML(sec.fields, data)}</div>
     ${sec.series.length ? `<div style="padding:0 20px 20px">${kvHTML(sec.series, data)}</div>` : ""}</div>`;
 }
 
-/** Muat & gambar satu bagian ke dalam kartu `card`. */
-async function loadSection(card, sec, url, state, token, exportUrl) {
+// Halaman detail tanpa bagian profil (mis. agensi): judul dari nama yang dibawa tautan daftar.
+function plainHeroHTML(det, id, name) {
+  const fm = fmLink(det, id);
+  return `<div class="card"><div class="hero"><div style="flex:1;min-width:240px"><h1>${esc(name || det.title)}</h1>
+    <div class="muted" style="margin-top:4px">${esc(det.title)}</div>
+    ${fm ? `<div class="meta" style="margin-top:10px"><a class="btn sm" href="${esc(fm)}" target="_blank" rel="noopener">Buka di FastMoss ↗</a></div>` : ""}</div></div></div>`;
+}
+
+// Angka dari teks persen FastMoss ("-4%", "-24,3448%") untuk grafik.
+function numLoose(v) {
+  const n = toNum(v);
+  if (n != null) return n;
+  if (typeof v !== "string") return null;
+  const f = parseFloat(v.replace(/%/g, "").replace(",", "."));
+  return Number.isFinite(f) ? f : null;
+}
+
+/** Grafik sebar (kuadran): titik = baris `profile.rows`; garis acuan dari `profile.ref` (rata-rata, median). */
+function scatterChart(box, L, data) {
+  const p = L.profile || {};
+  const rows = (Array.isArray(dig(data, p.rows)) ? dig(data, p.rows) : []).filter((r) => numLoose(dig(r, L.series[0].key)) != null);
+  if (!rows.length) { box.innerHTML = `<div class="empty">Tidak ada data.</div>`; return; }
+  const [sx, sy] = L.series;
+  const cols = [{ label: "Label", type: "text", key: L.x }, sx, sy];
+  if (!window.Chart) return fallbackTable(box, rows, cols);
+  box.innerHTML = `<div class="chart-box" style="height:340px"><canvas></canvas></div>
+    <details style="margin-top:8px"><summary class="faint" style="cursor:pointer;font-size:12px">Lihat sebagai tabel</summary><div class="tbl"></div></details>`;
+  const ink = chartInk();
+  const color = chartColor();
+  const pts = rows.map((r) => ({ x: numLoose(dig(r, sx.key)), y: numLoose(dig(r, sy.key)) ?? 0, l: labelText(dig(r, L.x)) }));
+  const ys = pts.map((q) => q.y), xs = pts.map((q) => q.x);
+  const refs = Object.entries(p.ref || {}).map(([name, key]) => {
+    const o = dig(data, key) || {};
+    return { name, x: numLoose(dig(o, p.ref_x)), y: numLoose(dig(o, p.ref_y)) };
+  }).filter((r) => r.x != null || r.y != null);
+  refs.forEach((r) => { if (r.y != null) ys.push(r.y); if (r.x != null) xs.push(r.x); });
+  const [y0, y1, x0, x1] = [Math.min(...ys), Math.max(...ys), Math.min(...xs), Math.max(...xs)];
+  const dash = [[6, 4], [2, 3]];
+  const refSets = refs.flatMap((r, i) => [
+    r.x != null && { label: `${r.name} ${sx.label.toLowerCase()}`, data: [{ x: r.x, y: y0 }, { x: r.x, y: y1 }] },
+    r.y != null && { label: `${r.name} ${sy.label.toLowerCase()}`, data: [{ x: x0, y: r.y }, { x: x1, y: r.y }] },
+  ].filter(Boolean).map((ds) => ({ ...ds, type: "line", showLine: true, pointRadius: 0, borderWidth: 1.5, borderColor: ink.text, borderDash: dash[i % 2], fill: false })));
+  const chart = new Chart($("canvas", box), {
+    type: "scatter",
+    data: { datasets: [{ label: "Kategori", data: pts, backgroundColor: color + "cc", borderColor: color, pointRadius: 5, pointHoverRadius: 7 }, ...refSets] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: refSets.length > 0, labels: { color: ink.text, boxWidth: 18, filter: (it) => it.datasetIndex > 0 } },
+        tooltip: { filter: (c) => c.datasetIndex === 0 || c.dataIndex === 0,
+          callbacks: { label: (c) => (c.datasetIndex === 0 ? `${c.raw.l}: ${fmtBy(sx.type, c.raw.x)} · ${nfF.format(c.raw.y)}%` : c.dataset.label) } },
+      },
+      scales: {
+        x: { title: { display: true, text: sx.label, color: ink.text }, grid: { color: ink.grid }, ticks: { color: ink.text, callback: (v) => fmtBy(sx.type, v) } },
+        y: { title: { display: true, text: sy.label, color: ink.text }, grid: { color: ink.grid }, ticks: { color: ink.text, callback: (v) => `${nfF.format(v)}%` } },
+      },
+    },
+  });
+  charts.add(chart);
+  mountTable($(".tbl", box), cols, rows);
+}
+
+const infoBanner = (msg) => `<div class="banner info"><span class="ico">ℹ️</span><div>${esc(msg)}</div></div>`;
+
+/** Muat & gambar satu bagian ke dalam kartu `card`. `onPage(n)` = pindah halaman tabel. */
+async function loadSection(card, sec, url, state, token, exportUrl, onPage) {
   const body = $(".sec-body", card);
+  const seq = (card._seq || 0) + 1;
+  card._seq = seq;
   body.innerHTML = skeletonRows(3);
   let res;
   try { res = await api(url, state); } catch (e) { res = { status: "error", message: e.message }; }
-  if (token !== S.token) return;
+  if (token !== S.token || seq !== card._seq) return;
+  const L = { ...sec, ...(res.layout || {}) };
+  $(".card-title", card).textContent = L.title;
+  card.classList.toggle("is-locked", res.status === "locked");
+  const tools = $(".sec-tools", card);
+  if (tools) tools.innerHTML = "";
+  if (res.status === "empty") { body.innerHTML = infoBanner(res.message || "Belum ada data untuk pilihan ini."); return; }
   if (res.status !== "ok") {
     body.innerHTML = statusBanner(res, true) || `<div class="empty">Tidak ada data.</div>`;
-    $("[data-retry]", body)?.addEventListener("click", () => loadSection(card, sec, url, state, token, exportUrl));
-    if (res.status === "locked") card.classList.add("is-locked");
+    $("[data-retry]", body)?.addEventListener("click", () => loadSection(card, sec, url, state, token, exportUrl, onPage));
     return;
   }
   const d = res.data;
-  if (sec.view === "kpi") body.innerHTML = kpiHTML(sec.fields, d);
-  else if (sec.view === "kv") body.innerHTML = kvHTML(sec.fields, d || {});
-  else if (sec.view === "pairs") {
+  if (L.view === "kpi") body.innerHTML = kpiHTML(L.fields, d);
+  else if (L.view === "kv") body.innerHTML = kvHTML(L.fields, d || {});
+  else if (L.view === "list") body.innerHTML = listHTML(L.fields, d);
+  else if (L.view === "pairs") {
     const rows = Array.isArray(d) ? d : [];
-    body.innerHTML = rows.length ? `<div class="kv">${rows.map((r) => `<div><span>${esc(dig(r, sec.x))}</span><span>${esc(dig(r, sec.series[0].key))}</span></div>`).join("")}</div>` : `<div class="empty">Tidak ada data.</div>`;
-  } else if (sec.view === "line") {
+    body.innerHTML = rows.length ? `<div class="kv">${rows.map((r) => `<div><span>${esc(labelText(dig(r, L.x)))}</span><span>${cell(L.series[0], r)}</span></div>`).join("")}</div>` : `<div class="empty">Tidak ada data.</div>`;
+  } else if (L.view === "line") {
     const rows = Array.isArray(d) ? d : [];
     if (!rows.length) body.innerHTML = `<div class="empty">Belum ada data tren.</div>`;
-    else lineChart(body, rows, sec.x, sec.series);
-  } else if (sec.view === "bars") {
+    else lineChart(body, rows, L.x, L.series);
+  } else if (L.view === "bars") {
     const rows = Array.isArray(d) ? d : [];
-    if (sec.x && rows.length) barChart(body, rows, sec.x, sec.series);
-    else body.innerHTML = kpiHTML([], d);
-  } else if (sec.view === "table") {
-    const cols = sec.fields.length ? sec.fields : autoCols(res.rows);
+    if (L.x && rows.length) barChart(body, rows, L.x, L.series);
+    else body.innerHTML = rows.length || !d || Array.isArray(d) ? `<div class="empty">Tidak ada data.</div>` : kpiHTML([], d);
+  } else if (L.view === "scatter") {
+    scatterChart(body, L, d);
+  } else if (L.view === "table") {
+    const cols = L.fields.length ? L.fields : autoCols(res.rows);
     const page = res.page || 1;
-    body.innerHTML = `<div class="tbl"></div>${lockedRowsNote(res)}${sec.paged ? `<div class="pager"></div>` : ""}`;
-    mountTable($(".tbl", body), cols, res.rows || [], { offset: (page - 1) * 10 });
-    if (sec.paged) {
-      const canNext = !res.limit && (res.rows || []).length >= 10 && (!res.total || page * 10 < res.total);
+    const size = res.pagesize || L.pagesize || 10;
+    body.innerHTML = `<div class="tbl"></div>${lockedRowsNote(res)}${L.paged ? `<div class="pager"></div>` : ""}`;
+    mountTable($(".tbl", body), cols, res.rows || [], { offset: (page - 1) * size });
+    if (L.paged) {
+      const canNext = !res.limit && (res.rows || []).length >= size && (!res.total || page * size < res.total);
       const pg = $(".pager", body);
-      pg.innerHTML = `<span class="muted" style="font-size:12.5px">${res.total != null ? `${nfF.format(res.total)} data · ` : ""}hal. ${page}</span>
+      pg.innerHTML = `<span class="muted" style="font-size:12.5px">${res.total != null ? `${nfF.format(res.total)} data · ` : ""}hal. ${page}${res.total ? ` dari ${nfF.format(Math.ceil(res.total / size))}` : ""}</span>
         <button class="btn sm" data-p="-1" ${page <= 1 ? "disabled" : ""}>‹</button><button class="btn sm" data-p="1" ${canNext ? "" : "disabled"}>${res.limit ? "🔒 " : ""}›</button>`;
-      $$("[data-p]", pg).forEach((b) => b.addEventListener("click", () => {
-        state.page = page + +b.dataset.p;
-        loadSection(card, sec, url, state, token, exportUrl);
-      }));
+      $$("[data-p]", pg).forEach((b) => b.addEventListener("click", () => onPage && onPage(page + +b.dataset.p)));
     }
-    const tools = $(".sec-tools", card);
-    if (exportUrl && tools && !tools.dataset.done) {
-      tools.dataset.done = "1";
+    if (exportUrl && tools) {
       tools.innerHTML = exportButtons(exportUrl);
       bindExports(tools);
     }
-  }
+  } else body.innerHTML = kpiHTML([], d);
 }
 
 function sectionCard(sec) {
-  const ctl = (sec.controls || []).map((c) => `<select class="select" data-ctl="${esc(c.param)}" style="height:30px">`
-    + c.options.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(c.default) ? "selected" : ""}>${esc(l)}</option>`).join("") + `</select>`).join("");
-  return `<section class="card card-pad sec" data-sec="${esc(sec.key)}" style="${sec.wide || sec.view === "table" || sec.view === "kpi" ? "grid-column:1/-1" : ""}">
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-      <h3 class="card-title" style="margin:0;flex:1">${esc(sec.title)}</h3>${ctl}<span class="sec-tools" style="display:flex;gap:6px"></span></div>
-    ${sec.note ? `<p class="faint" style="margin:-6px 0 10px;font-size:12.5px">${esc(sec.note)}</p>` : ""}
+  const wide = sec.wide || ["table", "kpi", "scatter"].includes(sec.view);
+  return `<section class="card card-pad sec" data-sec="${esc(sec.key)}" style="${wide ? "grid-column:1/-1" : ""}">
+    <div class="sec-head"><h3 class="card-title">${esc(sec.title)}</h3><span class="sec-tools"></span></div>
+    <div class="filters sec-ctl"></div>
+    ${sec.note ? `<p class="faint sec-note">${esc(sec.note)}</p>` : ""}
     <div class="sec-body"></div></section>`;
 }
 
-function mountSections(grid, sections, urlFor, baseState, token, exportFor) {
+// param yang dikuasai satu kontrol
+function ctlParams(c) {
+  if (c.kind === "category") return c.levels;
+  if (c.kind === "range" || c.kind === "date") return c.params;
+  if (c.kind === "period") return ["date_type", "date_value"];
+  if (c.kind === "dperiod") return [c.param, ...c.params, ...c.span];
+  return [c.param];
+}
+
+/**
+ * Pasang kartu-kartu bagian. Bagian dengan `sync` sama berbagi kontrol non-lokal (periode dsb.):
+ * kontrolnya tampil sekali di kartu pertama grup, dan mengubahnya memuat ulang seluruh grup.
+ * Kontrol lokal & pilihan tampilan (view) tetap milik kartu masing-masing.
+ */
+function mountSections(grid, sections, urlFor, baseState, token, exportFor, optFor = getOptions) {
   grid.innerHTML = sections.map(sectionCard).join("");
+  const groups = new Map();
   for (const sec of sections) {
-    const card = $(`[data-sec="${sec.key}"]`, grid);
-    const state = { ...baseState };
-    (sec.controls || []).forEach((c) => { state[c.param] = c.default; });
-    const run = () => loadSection(card, sec, urlFor(sec), state, token, exportFor ? exportFor(sec, state) : null);
-    $$("[data-ctl]", card).forEach((s) => s.addEventListener("change", () => {
-      state[s.dataset.ctl] = s.value;
-      delete state.page;
-      run();
-    }));
-    run();
+    const g = sec.sync || `#${sec.key}`;
+    if (!groups.has(g)) groups.set(g, { state: {}, units: [] });
+    groups.get(g).units.push(sec);
+  }
+  const isShared = (c) => !c.local && c.kind !== "view";
+  for (const grp of groups.values()) {
+    const shared = [];
+    grp.units.forEach((s) => (s.controls || []).filter(isShared).forEach((c) => { if (!shared.some((x) => x.param === c.param)) shared.push(c); }));
+    grp.units = grp.units.map((sec, idx) => {
+      const u = { sec, card: $(`[data-sec="${sec.key}"]`, grid), own: {} };
+      u.ctls = [...(idx === 0 ? shared : []), ...(sec.controls || []).filter((c) => !isShared(c))];
+      u.state = () => ({ ...baseState, ...grp.state, ...u.own });
+      u.run = () => {
+        const st = u.state();
+        loadSection(u.card, sec, urlFor(sec), st, token, exportFor ? exportFor(sec, st) : null, (p) => { u.own.page = p; u.run(); });
+      };
+      u.draw = async () => {
+        const wrap = $(".sec-ctl", u.card);
+        wrap.innerHTML = "";
+        wrap.hidden = !u.ctls.length;
+        if (!u.ctls.length) return;
+        const tmp = u.state();
+        await mountControls(u.ctls, tmp, wrap, null, () => {
+          const before = JSON.stringify(grp.state);
+          for (const c of u.ctls) {
+            const target = isShared(c) ? grp.state : u.own;
+            ctlParams(c).forEach((p) => { if (tmp[p] != null && tmp[p] !== "") target[p] = tmp[p]; else delete target[p]; });
+          }
+          if (JSON.stringify(grp.state) !== before) {
+            grp.units.forEach((x) => { delete x.own.page; x.run(); });
+          } else {
+            delete u.own.page;
+            u.run();
+          }
+          u.draw();
+        }, {}, optFor);
+      };
+      return u;
+    });
+    grp.units.forEach((u) => { u.draw(); u.run(); });
   }
 }
 
 // ============================================================ halaman detail
+function detailOptions(kind, id) {
+  return (source) => {
+    if (!source.startsWith("@")) return getOptions(source);
+    const key = `${S.region}:${kind}:${id}:${source}`;
+    if (!S.options[key]) {
+      S.options[key] = api(`/api/detail/${kind}/${encodeURIComponent(id)}/_opt/${source.slice(1)}`).then((j) => j.options || {}).catch(() => ({}));
+    }
+    return S.options[key];
+  };
+}
+
 async function pageDetail(el, kind, id, q) {
   const det = S.catalog.details[kind];
   if (!det || !/^[\w-]+$/.test(id)) { el.innerHTML = `<div class="empty">Halaman detail tidak dikenal.</div>`; return; }
   const token = S.token;
   const tab = Math.min(Math.max(parseInt(q.tab || "0", 10) || 0, 0), det.tabs.length - 1);
   const profKey = Object.values(det.sections).find((s) => s.view === "profile")?.key;
+  const keep = q.n ? `&n=${encodeURIComponent(q.n)}` : "";
   el.innerHTML = `<div class="page-head"><div><div class="crumb"><a href="javascript:history.back()">‹ Kembali</a> · ${esc(det.title)}</div></div></div>
-    <div id="hero">${skeletonRows(4)}</div>
-    <nav class="tabs">${det.tabs.map(([t], i) => `<a href="#/detail/${kind}/${esc(id)}?tab=${i}" class="${i === tab ? "on" : ""}">${esc(t)}</a>`).join("")}</nav>
+    <div id="hero">${profKey ? skeletonRows(4) : plainHeroHTML(det, id, q.n)}</div>
+    <nav class="tabs">${det.tabs.map(([t], i) => `<a href="#/detail/${kind}/${esc(id)}?tab=${i}${keep}" class="${i === tab ? "on" : ""}">${esc(t)}</a>`).join("")}</nav>
     <div class="grid c2" id="secs"></div>`;
   if (profKey) {
     api(`/api/detail/${kind}/${id}/${profKey}`).then((res) => {
       if (token !== S.token) return;
-      $("#hero", el).innerHTML = res.status === "ok" ? heroHTML(det.sections[profKey], res.data || {}, kind, id) : statusBanner(res, false);
+      $("#hero", el).innerHTML = res.status === "ok" ? heroHTML(det.sections[profKey], res.data || {}, det, id) : statusBanner(res, false);
     }).catch((e) => { $("#hero", el).innerHTML = statusBanner({ status: "error", message: e.message }); });
   }
   const keys = det.tabs[tab][1].filter((k) => k !== profKey);
   const secs = keys.map((k) => det.sections[k]).filter(Boolean);
   mountSections($("#secs", el), secs, (s) => `/api/detail/${kind}/${id}/${s.key}`, {}, token,
-    (s, st) => (s.view === "table" ? `/api/export/detail/${kind}/${id}/${s.key}?${new URLSearchParams(Object.entries(st).filter(([k]) => k !== "page")).toString()}` : null));
+    (s, st) => (s.view === "table" ? `/api/export/detail/${kind}/${id}/${s.key}?${new URLSearchParams(Object.entries(st).filter(([k]) => k !== "page")).toString()}` : null),
+    detailOptions(kind, id));
 }
 
 // ============================================================ halaman tren pasar
@@ -1006,14 +1331,160 @@ async function pageMarket(el, key, q) {
   if (!pg) { el.innerHTML = `<div class="empty">Halaman tidak ditemukan.</div>`; return; }
   const token = S.token;
   const state = { ...q };
-  el.innerHTML = `<div class="page-head"><div><div class="crumb">Tren Pasar</div><h1>${esc(pg.title)}</h1><p>${esc(pg.desc)}</p></div></div>
+  el.innerHTML = `<div class="page-head"><div><div class="crumb">${esc(pg.group || "Tren Pasar")}</div><h1>${esc(pg.title)}</h1><p>${esc(pg.desc)}</p></div></div>
     <div class="card"><div class="filters" id="flt"></div></div>
-    ${S.account?.is_free ? `<div class="banner lock"><span class="ico">🔒</span><div>Paket gratis: data <b>harian</b> untuk <b>semua kategori</b>. Pilihan kategori & periode mingguan/bulanan akan menampilkan status terkunci.</div></div>` : ""}
+    ${S.account?.is_free ? `<div class="banner lock"><span class="ico">🔒</span><div>Paket gratis FastMoss membatasi sebagian data pasar. Pilihan yang tidak termasuk paket akan menampilkan status terkunci — data tidak dibuka paksa.</div></div>` : ""}
     <div class="grid c2" id="secs" style="margin-top:14px"></div>`;
   await mountControls(pg.controls, state, $("#flt", el), null, () => go(`/market/${key}`, state));
   if (token !== S.token) return;
-  mountSections($("#secs", el), pg.sections, (s) => `/api/market/${key}/${s.key}`, state, token,
-    (s) => (s.view === "table" ? `/api/export/market/${key}/${s.key}?${new URLSearchParams(q).toString()}` : null));
+  mountSections($("#secs", el), pg.sections, (s) => `/api/market/${key}/${s.key}`, q, token,
+    (s, st) => (s.view === "table" ? `/api/export/market/${key}/${s.key}?${new URLSearchParams(Object.entries(st).filter(([k]) => k !== "page")).toString()}` : null));
+}
+
+// ============================================================ monitor video
+const MON_TYPE = { 1: "Video", 2: "Akun kreator" };
+async function pageMonitor(el, q) {
+  const token = S.token;
+  const admin = !S.me || S.me.role === "admin";
+  const hist = { type: q.type || "", status: q.status || "", page: Math.max(1, parseInt(q.page || "1", 10)) };
+  let remain = null;
+  el.innerHTML = `<div class="page-head"><div><div class="crumb">Video</div><h1>Monitor Video</h1>
+      <p>Pantau pertumbuhan tayangan & suka sebuah video TikTok per jam lewat FastMoss. Data milik akun FastMoss yang sedang dipakai.</p></div></div>
+    <div class="banner lock"><span class="ico">⚠️</span><div><b>Menambah monitor memakai kuota bulanan akun FastMoss</b> yang dipakai (bukan gratis).
+      Lite selalu meminta konfirmasi dulu, dan hanya admin yang bisa menambah.</div></div>
+    <div class="grid c2">
+      <section class="card card-pad"><h3 class="card-title">Kuota monitor</h3><div id="quota">${skeletonRows(2)}</div></section>
+      <section class="card card-pad"><h3 class="card-title">Cari video untuk dipantau</h3>
+        <form id="mSearch" class="filters" style="padding:0"><div class="field grow"><label for="mIn">Tautan atau ID video TikTok</label>
+          <input class="input" id="mIn" value="${esc(q.v || "")}" placeholder="https://www.tiktok.com/@akun/video/…" autocomplete="off"></div>
+          <div class="field" style="min-width:auto"><button class="btn primary">Cari</button></div></form>
+        <div id="mRes"></div></section>
+      <section class="card card-pad" style="grid-column:1/-1">
+        <div class="sec-head"><h3 class="card-title">Riwayat monitor akun ini</h3></div>
+        <div class="filters" style="padding:0 0 12px">
+          <div class="field"><label>Jenis</label><select class="select" id="hType"><option value="">Semua</option>${Object.entries(MON_TYPE).map(([v, l]) => `<option value="${v}" ${hist.type === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+          <div class="field"><label>Status</label><select class="select" id="hStatus"><option value="">Semua</option>${[["0", "Menunggu"], ["1", "Sedang dipantau"], ["2", "Selesai"]].map(([v, l]) => `<option value="${v}" ${hist.status === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+        </div><div id="hist">${skeletonRows(3)}</div><div class="pager" id="hPager"></div></section>
+    </div>`;
+
+  const loadQuota = async () => {
+    let r;
+    try { r = await api("/api/monitor/quota"); } catch (e) { r = { status: "error", message: e.message }; }
+    if (token !== S.token) return;
+    if (r.status !== "ok") { $("#quota", el).innerHTML = statusBanner(r, false); return; }
+    remain = r.remain;
+    const info = (r.consume || []).map((c) => `<div><span>${esc(c.title || "Pemakaian")}</span><span>${esc((c.info || []).map((x) => (typeof x === "object" && x ? Object.values(x).filter((v) => typeof v !== "object").join(" ") : x)).join(" · ") || "–")}</span></div>`).join("");
+    $("#quota", el).innerHTML = `<div class="grid k4"><div class="kpi card" style="box-shadow:none"><div class="l">Sisa kuota</div><div class="v num">${fmtNum(r.remain)}</div></div></div>`
+      + (info ? `<div class="kv" style="margin-top:12px">${info}</div>` : "");
+  };
+
+  const histCols = [
+    { label: "Video / akun", type: "entity", key: "_title", img: "cover", sub: "nickname" },
+    { label: "Jenis", type: "text", key: "_type" }, { label: "Status", type: "text", key: "status_text" },
+    { label: "Mulai", type: "ts", key: "_start" }, { label: "Selesai", type: "ts", key: "_end" }, { label: "Durasi", type: "dur", key: "duration" },
+    { label: "Tayangan", type: "num", key: "play_count" }, { label: "Suka", type: "num", key: "digg_count" },
+    { label: "Notif tayangan ≥", type: "num", key: "notify_play_count" }, { label: "Notif suka ≥", type: "num", key: "notify_digg_count" },
+  ];
+  const loadHist = async () => {
+    let r;
+    try { r = await api("/api/monitor/list", hist); } catch (e) { r = { status: "error", message: e.message, rows: [] }; }
+    if (token !== S.token) return;
+    if (r.status !== "ok") { $("#hist", el).innerHTML = statusBanner(r, false); return; }
+    const rows = (r.rows || []).map((x) => ({ ...x, _title: x.video_desc || x.nickname || "(tanpa judul)", _type: MON_TYPE[x.type] || x.type,
+      _start: x.start_time || x.subscribe_start_time, _end: x.end_time || x.subscribe_end_time }));
+    $("#hist", el).innerHTML = rows.length ? "" : `<div class="empty">${esc(r.message || "Belum ada riwayat monitor.")}</div>`;
+    if (rows.length) mountTable($("#hist", el), histCols, rows, { offset: (hist.page - 1) * 10 });
+    const last = r.total ? Math.ceil(r.total / 10) : 1;
+    $("#hPager", el).innerHTML = r.total > 10 ? `<span class="muted" style="font-size:12.5px">Halaman ${hist.page} dari ${last}</span>
+      <button class="btn sm" data-hp="-1" ${hist.page <= 1 ? "disabled" : ""}>‹</button><button class="btn sm" data-hp="1" ${hist.page >= last ? "disabled" : ""}>›</button>` : "";
+    $$("[data-hp]", el).forEach((b) => b.addEventListener("click", () => go("/monitor", { ...hist, page: hist.page + +b.dataset.hp, v: q.v })));
+  };
+  $("#hType", el).addEventListener("change", (e) => go("/monitor", { ...hist, type: e.target.value, page: 1, v: q.v }));
+  $("#hStatus", el).addEventListener("change", (e) => go("/monitor", { ...hist, status: e.target.value, page: 1, v: q.v }));
+
+  const addForm = (v) => `<form class="mon-add" data-vid="${esc(v.video_id)}">
+      <div class="filters" style="padding:10px 0 0">
+        <div class="field"><label>Lama pemantauan</label><select class="select" name="hours"><option value="24">24 jam</option><option value="48">48 jam</option><option value="72">72 jam</option><option value="168">7 hari</option></select></div>
+        <div class="field"><label>Kabari bila tayangan ≥ (opsional)</label><input class="input" name="play" type="number" min="0" inputmode="numeric"></div>
+        <div class="field"><label>Kabari bila suka ≥ (opsional)</label><input class="input" name="digg" type="number" min="0" inputmode="numeric"></div>
+      </div>
+      <label class="confirm-line"><input type="checkbox" name="ok"><span>Saya paham: menambah monitor ini <b>memakai kuota monitor akun FastMoss</b>${remain != null ? ` (sisa sekarang: ${esc(remain)})` : ""} dan tidak bisa dibatalkan dari Lite.</span></label>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px"><button class="btn primary" name="go" disabled>Tambah monitor (pakai kuota)</button><span class="muted mon-msg"></span></div></form>`;
+
+  const search = async (text) => {
+    const box = $("#mRes", el);
+    if (!text) { box.innerHTML = ""; return; }
+    box.innerHTML = skeletonRows(2);
+    let r;
+    try { r = await api("/api/monitor/search", { content: text }); } catch (e) { r = { status: "error", message: e.message, rows: [] }; }
+    if (token !== S.token) return;
+    if (r.status !== "ok") { box.innerHTML = statusBanner(r, false); return; }
+    if (!r.rows.length) { box.innerHTML = `<div class="empty">Video tidak ditemukan di FastMoss. Periksa tautannya.</div>`; return; }
+    box.innerHTML = r.rows.map((v) => `<div class="mon-video">
+        ${entity({ key: "video_desc", img: "cover", sub: "nickname", sub_prefix: "@", id: "video_id", link: "video" }, v)}
+        <div class="meta">${[["Tayangan", v.play_count], ["Suka", v.digg_count], ["Komentar", v.comment_count], ["Bagikan", v.share_count]].map(([l, n]) => `<span class="pill">${l}: ${fmtNum(n)}</span>`).join("")}
+          <span class="pill">Diunggah ${fmtTs(v.create_time, false)}</span></div>
+        ${admin ? addForm(v) : `<p class="faint" style="margin:8px 0 0">Menambah monitor butuh kata sandi admin.</p>`}</div>`).join("");
+    $$("form.mon-add", box).forEach((f) => {
+      const btn = f.elements.go;
+      f.elements.ok.addEventListener("change", () => { btn.disabled = !f.elements.ok.checked; });
+      f.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (!f.elements.ok.checked) return;
+        btn.disabled = true;
+        $(".mon-msg", f).innerHTML = `<span class="spinner"></span> Mengirim ke FastMoss…`;
+        try {
+          const a = await api("/api/monitor/add", {}, { method: "POST", body: { video_id: f.dataset.vid, hours: +f.elements.hours.value,
+            notify_play_count: f.elements.play.value, notify_digg_count: f.elements.digg.value, confirm: true } });
+          $(".mon-msg", f).textContent = a.message || (a.status === "ok" ? "Monitor ditambahkan." : "Gagal.");
+          if (a.status === "ok") { f.elements.ok.checked = false; loadQuota(); loadHist(); } else btn.disabled = false;
+        } catch (err) { $(".mon-msg", f).textContent = `Gagal: ${err.message}`; btn.disabled = false; }
+      });
+    });
+  };
+  $("#mSearch", el).addEventListener("submit", (e) => {
+    e.preventDefault();
+    const v = $("#mIn", el).value.trim();
+    go("/monitor", { ...hist, v });
+  });
+  await loadQuota();
+  loadHist();
+  search(q.v || "");
+}
+
+// ============================================================ dasbor ringkas
+const DASH = [
+  ["product-sales", "Produk terlaris kemarin"], ["product-new", "Produk baru laris"], ["shop-sales", "Toko terlaris kemarin"],
+  ["creator-commerce", "Kreator penjual terlaris"], ["live-rank", "LIVE terlaris"], ["product-hotvideo", "Produk dari video viral"],
+];
+async function pageDashboard(el) {
+  const token = S.token;
+  const pulse = S.catalog.market.find((p) => p.key === "pulse");
+  const sum = pulse?.sections.find((s) => s.key === "summary");
+  const items = DASH.map(([k, t]) => [S.catalog.menus.find((m) => m.key === k), t]).filter(([m]) => m);
+  el.innerHTML = `<div class="page-head"><div><div class="crumb">Beranda</div><h1>Dasbor Ringkas</h1>
+      <p>Sekilas pasar TikTok Shop ${esc(S.region)}: ikhtisar industri dan 5 teratas dari peringkat utama. Klik judul kartu untuk daftar lengkap.</p></div></div>
+    ${sum ? `<section class="card card-pad" id="dSum"><div class="sec-head"><h3 class="card-title">${esc(sum.title)}</h3><a class="btn sm ghost" href="#/market/pulse">Ikhtisar Pasar ›</a></div><div class="sec-body">${skeletonRows(2)}</div></section>` : ""}
+    <div class="grid c2" style="margin-top:14px">${items.map(([m, t]) => `<section class="card card-pad" data-dash="${esc(m.key)}">
+      <div class="sec-head"><h3 class="card-title"><a href="#/m/${esc(m.key)}">${esc(t)}</a></h3><a class="btn sm ghost" href="#/m/${esc(m.key)}">Lihat semua ›</a></div>
+      <div class="sec-body">${skeletonRows(3)}</div></section>`).join("")}</div>`;
+  if (sum) {
+    api("/api/market/pulse/summary").then((r) => {
+      if (token !== S.token) return;
+      $("#dSum .sec-body", el).innerHTML = r.status === "ok" ? kpiHTML(sum.fields, r.data) : statusBanner(r, false);
+    }).catch((e) => { $("#dSum .sec-body", el).innerHTML = statusBanner({ status: "error", message: e.message }); });
+  }
+  for (const [m] of items) {
+    const box = $(`[data-dash="${m.key}"] .sec-body`, el);
+    api(`/api/list/${m.key}`).then((r) => {
+      if (token !== S.token) return;
+      if (r.status !== "ok") { box.innerHTML = statusBanner(r, false); return; }
+      const vals = ctlValues(m.controls, r.params || {});
+      const cols = m.columns.slice(0, 3).map((c) => ({ ...c, label: fillTpl(c.label, vals) }));
+      mountTable(box, cols, (r.rows || []).slice(0, 5));
+      if (r.params?.date_value) box.insertAdjacentHTML("beforeend", `<p class="faint" style="font-size:12px;margin:8px 0 0">Periode ${esc(r.params.date_value)}</p>`);
+    }).catch((e) => { box.innerHTML = statusBanner({ status: "error", message: e.message }); });
+  }
 }
 
 // ============================================================ pengaturan

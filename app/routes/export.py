@@ -5,6 +5,7 @@ import csv
 import datetime as dt
 import io
 import re
+from dataclasses import replace
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -221,6 +222,13 @@ def _note(region: str, rows: int, hidden: int, limit: int) -> str:
     return f"Sumber: FastMoss · Negara: {region} · {rows} baris · diunduh {when}{extra}"
 
 
+def _labels(menu, query: dict) -> list[Col]:
+    """Isi label bertemplat (mis. "Terjual {last_date_type} hari") dengan pilihan yang dipakai."""
+    vals = {c.param: c.default for c in menu.controls if c.default not in (None, "auto")} | query
+    return [replace(c, label=re.sub(r"\{(\w+)\}", lambda m: str(vals.get(m.group(1), m.group(0))), c.label))
+            for c in menu.columns]
+
+
 def _fail(res: dict):
     status = 403 if res.get("status") in ("locked", "auth") else 502
     raise HTTPException(status_code=status, detail=res.get("message") or "Gagal mengambil data.")
@@ -252,7 +260,7 @@ async def export_list(key: str, request: Request, _: str = Depends(auth.require_
         if res.get("total") and len(rows) >= res["total"]:
             break
     rows = rows[: settings.EXPORT_MAX_ROWS]
-    return build_file(fmt, menu.title, menu.columns, rows, _note(region, len(rows), hidden, limit))
+    return build_file(fmt, menu.title, _labels(menu, query), rows, _note(region, len(rows), hidden, limit))
 
 
 @router.get("/detail/{kind}/{item_id}/{section}")
