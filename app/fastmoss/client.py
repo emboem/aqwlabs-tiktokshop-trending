@@ -61,6 +61,8 @@ def strip_markup(obj: Any) -> Any:
             obj = _MARKUP.sub("", obj)
             if _ENTITY.search(obj):
                 obj = html.unescape(obj)
+        if obj.endswith("起"):          # "Rp12.000起" (FastMoss) = mulai dari Rp12.000
+            obj = "mulai " + obj[:-1]
         return obj
     if isinstance(obj, list):
         return [strip_markup(x) for x in obj]

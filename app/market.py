@@ -42,7 +42,7 @@ _MOCK = {"is_mock": 0}
 
 
 def _pop(label, key):
-    return Col(label, "num", key, hint="% dibanding periode sebelumnya")
+    return Col(label, "pct", key, hint="% dibanding periode sebelumnya (angka FastMoss sudah dalam persen)")
 
 
 # --------------------------------------------------------------------------- Strategi: jalur penjualan
@@ -117,8 +117,9 @@ PAGES = [
          Section("quadrant", "Kuadran pasar: ukuran × pertumbuhan", _V2 + "categoryDistribution", "scatter",
                  extra=_MOCK, x="category_name", wide=True,
                  note="Sumbu-X = omzet periode ini, sumbu-Y = pertumbuhan vs periode lalu. Garis putus-putus = "
-                      "rata-rata/median. Kanan-atas: pasar biru (besar & tumbuh); kiri-atas: pasar berkembang; "
-                      "kanan-bawah: pasar stabil; kiri-bawah: pasar jenuh.",
+                      "rata-rata/median. Kanan-atas: pasar utama (besar & tumbuh — prioritas); kiri-atas: pasar "
+                      "yang belum banyak dimanfaatkan (kecil tapi tumbuh — peluang ekspansi); kanan-bawah: pasar "
+                      "yang stabil (besar, matang); kiri-bawah: pasar yang sedang dikembangkan (ceruk/menurun).",
                  series=[M("Omzet", "cur_sale_amount"), T("Pertumbuhan", "category_sale_amount_mom_rate")],
                  profile={"rows": "dots", "ref": {"Rata-rata": "avg", "Median": "middle_avg"},
                           "ref_x": "avg_gmv_amount", "ref_y": "avg_rate"}),

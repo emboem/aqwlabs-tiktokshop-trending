@@ -24,6 +24,16 @@ ADD_STATUS = {2: "Kuota monitor akun FastMoss habis atau paket tidak mencukupi."
               7: "Waktu monitor tidak valid."}
 
 
+CONSUME_TYPES = {1: "Monitor video", 2: "Monitor akun kreator", 3: "Monitor LIVE"}
+
+
+def _consume_text(x) -> str:
+    """{"hour": 24, "consume": 1} → "24 jam = 1 kuota"."""
+    if isinstance(x, dict) and "hour" in x:
+        return f"{x.get('hour')} jam = {x.get('consume')} kuota"
+    return str(x)
+
+
 def _ref() -> str:
     return settings.BASE_URL + REFERER
 
@@ -40,8 +50,8 @@ async def quota(region: str) -> dict:
         d = res.data
         info = d.get("consume_info") if isinstance(d.get("consume_info"), list) else []
         out.update(remain=d.get("remain") or 0,
-                   consume=[{"title": (c or {}).get("title") or (c or {}).get("name") or "",
-                             "info": (c or {}).get("info") or []} for c in info])
+                   consume=[{"title": CONSUME_TYPES.get(int((c or {}).get("type") or 0), "Pemakaian kuota"),
+                             "info": [_consume_text(x) for x in (c or {}).get("info") or []]} for c in info])
     return out
 
 

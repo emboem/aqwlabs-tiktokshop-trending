@@ -73,6 +73,36 @@ def test_catalog_integrity():
     assert {p["key"] for p in MARKET_PAGES} == {"pulse", "category", "strategy", "category-daily", "insights"}
 
 
+def test_menu_controls_sources_and_links():
+    from app.catalog import OPTION_SOURCES
+    links = {"product", "shop", "creator", "live", "video", "ad", "advertiser", "agency", ""}
+    for m in MENUS:
+        params = [c.param for c in m.controls if c.kind != "category"]
+        assert len(params) == len(set(params)), m.key           # tiap param hanya satu kontrol
+        for c in m.controls:
+            if c.kind in ("dynselect", "category"):
+                assert c.source in OPTION_SOURCES, (m.key, c.param)
+        for col in m.columns:
+            assert col.link in links, (m.key, col.label)
+        for o, _ in m.sorts:
+            assert o == "" or "," in o
+    # kolom iklan/pengiklan/agensi menautkan ke halaman detail barunya
+    assert MENU_BY_KEY["ads-search"].columns[0].link == "ad"
+    assert MENU_BY_KEY["ads-advertiser"].columns[0].link == "advertiser"
+    assert MENU_BY_KEY["agency-rank"].columns[0].id == "partner_secid"
+
+
+def test_new_filters_build_params():
+    p = build_params(MENU_BY_KEY["creator-search"], {"gender": "1", "product": "2", "sale_category_l1": "5"})
+    assert p["gender"] == "1" and p["product"] == "2" and p["sale_category_l1"] == "5" and p["is_shop"] == 0
+    p = build_params(MENU_BY_KEY["creator-search"], {"shop_window": "0", "product": "2"})
+    assert "product" not in p                                     # format jual hanya bila punya etalase
+    p = build_params(MENU_BY_KEY["video-ai"], {})
+    assert p["rank_type"] == 2
+    p = build_params(MENU_BY_KEY["ads-search"], {"scene": "2", "duration": "0,15"})
+    assert p["scene"] == "2" and p["duration"] == "0,15" and "order" not in p   # urutan bawaan = tak dikirim
+
+
 def test_export_writers():
     cols = [Col("Produk", "entity", key="title", sub="shop", id="pid", link="product"),
             Col("Terjual", "num", "sold"), Col("Tags", "tags", "cats"), Col("Waktu", "ts", "t"),
@@ -95,3 +125,4 @@ def test_strip_markup_highlight():
     assert out["price"] == 58229
     res = classify({"code": 200, "msg": "ok", "data": raw})
     assert "<span" not in res.data["product_list"][0]["title"]
+    assert strip_markup({"fee": "Rp12.000起"})["fee"] == "mulai Rp12.000"
