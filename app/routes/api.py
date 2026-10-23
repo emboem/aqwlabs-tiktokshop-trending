@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from .. import auth, settings
 from ..accounts import current_id, registry
 from ..catalog import GROUP_ORDER, MENU_BY_KEY, MENUS
-from ..details import DETAILS, fetch_section
+from ..details import DETAILS, fetch_option, fetch_section
 from ..fastmoss.cookies import SESSION_KEY, cookie_get, detect_cookie
 from ..market import MARKET_PAGES, fetch_market
 from ..services import fetch_list, fetch_options
@@ -85,9 +85,21 @@ async def options(source: str, request: Request, _: str = Depends(auth.require_t
     return await fetch_options(source, _region(request))
 
 
+def _valid_id(item_id: str) -> bool:
+    return bool(item_id) and len(item_id) <= 64 and item_id.replace("-", "").replace("_", "").isalnum()
+
+
+@router.get("/detail/{kind}/{item_id}/_opt/{name}")
+async def detail_options(kind: str, item_id: str, name: str, request: Request, _: str = Depends(auth.require_team)):
+    """Opsi filter milik satu detail (mis. kategori produk di toko ini)."""
+    if not _valid_id(item_id):
+        raise HTTPException(status_code=400, detail="ID tidak valid.")
+    return await fetch_option(kind, item_id, name, _region(request))
+
+
 @router.get("/detail/{kind}/{item_id}/{section}")
 async def detail(kind: str, item_id: str, section: str, request: Request, _: str = Depends(auth.require_team)):
-    if not item_id.replace("-", "").replace("_", "").isalnum():
+    if not _valid_id(item_id):
         raise HTTPException(status_code=400, detail="ID tidak valid.")
     return await fetch_section(kind, item_id, section, _query(request), _region(request))
 

@@ -161,10 +161,13 @@ def clean_params(params: dict | None) -> dict:
     return {k: v for k, v in (params or {}).items() if v is not None and v != ""}
 
 
-def prepare(path: str, params: dict | None) -> tuple[str, dict]:
-    """Tambah ``_time`` + ``cnonce``, lalu kembalikan (query-string, header tanda tangan)."""
+def prepare(path: str, params: dict | None, body: str = "") -> tuple[str, dict]:
+    """Tambah ``_time`` + ``cnonce``, lalu kembalikan (query-string, header tanda tangan).
+
+    Untuk POST, ``body`` = JSON ringkas yang dikirim; isinya ikut masuk ``fm-sign``.
+    """
     p = clean_params(params)
     p["_time"] = int(time.time())
     p["cnonce"] = random.randint(10**7, 10**8 - 1)
-    headers = {"fm-sign": fm_sign(p), "fm-sig": fm_sig(path, p), "source": "pc"}
+    headers = {"fm-sign": fm_sign(p, body), "fm-sig": fm_sig(path, p), "source": "pc"}
     return signed_query(p), headers

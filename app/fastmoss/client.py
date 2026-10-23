@@ -96,6 +96,7 @@ class FastMossClient:
         self._lock = asyncio.Lock()
         self._last_call = 0.0
         self._cache: dict[str, tuple[float, FMResult]] = {}
+        self._inflight: dict[str, asyncio.Future] = {}
         self._account: tuple[float, dict] | None = None
 
     async def _client(self) -> httpx.AsyncClient:
@@ -141,7 +142,23 @@ class FastMossClient:
             res = hit[1]
             return FMResult(res.status, res.code, res.message, res.data, True, dict(res.meta))
 
-        res = await self._request(path, params, region, referer)
+        if use_cache and key in self._inflight:
+            # beberapa bagian halaman memakai endpoint + parameter yang sama -> cukup satu request
+            res = await asyncio.shield(self._inflight[key])
+            return FMResult(res.status, res.code, res.message, res.data, True, dict(res.meta))
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
+        if use_cache:
+            self._inflight[key] = fut
+        try:
+            res = await self._request(path, params, region, referer)
+        except BaseException as exc:
+            res = FMResult(ERROR, None, f"Permintaan gagal: {exc}")
+            fut.set_result(res)
+            raise
+        finally:
+            self._inflight.pop(key, None)
+        if not fut.done():
+            fut.set_result(res)
         ttl = settings.CACHE_TTL if res.status == OK else (60 if res.status == LOCKED else 0)
         if ttl and use_cache:
             self._cache[key] = (now + ttl, res)
@@ -150,7 +167,14 @@ class FastMossClient:
                     self._cache.pop(k, None)
         return res
 
-    async def _request(self, path: str, params: dict, region: str, referer: str | None) -> FMResult:
+    async def post(self, path: str, params: dict | None = None, body: dict | None = None, *,
+                   region: str | None = None, referer: str | None = None) -> FMResult:
+        """POST JSON bertanda tangan (dipakai Monitor). Tidak pernah di-cache."""
+        region = region or settings.DEFAULT_REGION
+        return await self._request(path, clean_params(params), region, referer, body=body or {})
+
+    async def _request(self, path: str, params: dict, region: str, referer: str | None,
+                       body: dict | None = None) -> FMResult:
         http = await self._client()
         last_err = ""
         for attempt in range(1, settings.RETRIES + 1):
@@ -158,10 +182,15 @@ class FastMossClient:
                 wait = settings.MIN_INTERVAL - (time.monotonic() - self._last_call)
                 if wait > 0:
                     await asyncio.sleep(wait)
-                query, sig = prepare(path, params)
+                raw = json.dumps(body, separators=(",", ":"), ensure_ascii=False) if body is not None else ""
+                query, sig = prepare(path, params, raw)
                 headers = self._headers(region, referer) | sig
                 try:
-                    resp = await http.get(f"{path}?{query}", headers=headers)
+                    if body is None:
+                        resp = await http.get(f"{path}?{query}", headers=headers)
+                    else:
+                        resp = await http.post(f"{path}?{query}", headers=headers | {"content-type": "application/json"},
+                                               content=raw.encode("utf-8"))
                 except httpx.HTTPError as exc:
                     last_err = f"{type(exc).__name__}: {exc}"
                     resp = None

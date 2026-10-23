@@ -32,7 +32,10 @@ def _total(data: dict) -> int | None:
 
 async def fetch_list(menu: Menu, query: dict, region: str) -> dict:
     """Ambil satu halaman data menu. Akun gratis: hanya halaman 1 & N baris teratas (seperti FastMoss)."""
-    params = build_params(menu, query)
+    try:
+        params = build_params(menu, query)
+    except ValueError as e:
+        return {"status": "error", "message": str(e), "rows": [], "params": dict(query), "total": None}
     params["region"] = region
     limit = await client.row_limit()
     page = int(params.get("page") or 1)

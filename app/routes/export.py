@@ -260,14 +260,16 @@ async def export_detail(kind: str, item_id: str, section: str, request: Request,
                         _: str = Depends(auth.require_team)):
     det = DETAILS.get(kind)
     sec = det.by_key.get(section) if det else None
-    if not sec or sec.view != "table" or not item_id.isdigit():
+    if not sec or sec.view != "table" or not item_id.replace("-", "").replace("_", "").isalnum():
         raise HTTPException(status_code=404, detail="Tabel tidak ditemukan.")
     fmt, region = _fmt(request), _region(request)
     res = await fetch_section(kind, item_id, section, _strip(_query(request)), region)
     if res["status"] != "ok":
         _fail(res)
     title = f"{det.title} {item_id} - {sec.title}"
-    return build_file(fmt, title, sec.fields or _auto_cols(res["rows"]), res["rows"],
+    lay = (res.get("layout") or {}).get("fields")
+    cols = [Col(**c) for c in lay] if lay else sec.fields
+    return build_file(fmt, title, cols or _auto_cols(res["rows"]), res["rows"],
                       _note(region, len(res["rows"]), res.get("hidden") or 0, res.get("limit") or 0))
 
 

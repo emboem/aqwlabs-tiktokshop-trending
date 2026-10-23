@@ -34,15 +34,23 @@ class Col:
 class Control:
     param: str
     label: str
-    kind: str                 # text | select | period | date | category | dynselect
+    kind: str                 # text | select | period | date | range | dperiod | category | dynselect | view
     options: list = field(default_factory=list)   # [[value, label], ...]
     default: Any = None
-    source: str = ""          # dynselect/category: nama sumber opsi (lihat OPTION_SOURCES)
+    source: str = ""          # dynselect/category: nama sumber opsi (lihat OPTION_SOURCES; "@x" = opsi milik detail)
     key: str = ""             # dynselect: kunci daftar di respons sumber
-    params: list = field(default_factory=list)    # date: daftar param yang diisi tanggal yang sama
-    offset: int = 1           # date/period: default = hari ini - offset
+    params: list = field(default_factory=list)    # date/range: param tanggal | dperiod: param lain yang ikut diisi
+    offset: int = 1           # date/range: tanggal bawaan & paling akhir = hari ini - offset
     advanced: bool = False    # tampil di panel "Filter lanjutan"
     levels: list = field(default_factory=lambda: ["l1_cid", "l2_cid", "l3_cid"])
+    min: str = ""             # period/date/range: tanggal paling awal ("YYYY-MM-DD" atau "-15" = 15 hari lalu)
+    max_days: int = 0         # range/dperiod: panjang rentang maksimum (0 = bebas)
+    span: list = field(default_factory=list)      # dperiod: [param awal, param akhir] untuk rentang kustom
+    picker: list = field(default_factory=list)    # period: date_type yang punya kalender (kosong = semua)
+    multi: bool = False       # dynselect: boleh pilih lebih dari satu (dikirim dipisah koma)
+    custom: bool = False      # dynselect: boleh isi rentang Min–Maks sendiri ("min,max", -1 = tanpa batas)
+    when: dict = field(default_factory=dict)      # tampil & dikirim hanya bila param lain bernilai tertentu
+    local: bool = False       # bagian detail ber-sync: kontrol ini milik bagiannya sendiri (tidak dibagi)
 
 
 @dataclass
@@ -98,35 +106,106 @@ TS = lambda label, key: Col(label, "ts", key)                              # noq
 
 
 # --------------------------------------------------------------------------- helper kontrol
-def period(daily=True, weekly=True, monthly=True, default=1) -> Control:
-    opts = []
-    if daily:
-        opts.append([1, "Harian"])
-    if weekly:
-        opts.append([2, "Mingguan"])
-    if monthly:
-        opts.append([3, "Bulanan"])
-    return Control("date_type", "Periode", "period", opts, default)
+FM_MIN_DATE = "2022-07-31"     # tanggal paling awal di kalender peringkat FastMoss
 
 
-def select(param, label, opts, default=None, advanced=False) -> Control:
-    return Control(param, label, "select", [list(o) for o in opts], default, advanced=advanced)
+def period(daily=True, weekly=True, monthly=True, default=1, min=FM_MIN_DATE, options=None, picker=()) -> Control:
+    """Peringkat Harian/Mingguan/Bulanan + kalender (hari kemarin / minggu lalu / bulan lalu)."""
+    opts = options or [o for o, on in (([1, "Harian"], daily), ([2, "Mingguan"], weekly), ([3, "Bulanan"], monthly)) if on]
+    return Control("date_type", "Periode", "period", opts, default, min=min, picker=list(picker))
+
+
+def select(param, label, opts, default=None, advanced=False, when=None) -> Control:
+    return Control(param, label, "select", [list(o) for o in opts], default, advanced=advanced, when=when or {})
 
 
 def words(label="Kata kunci", param="words") -> Control:
     return Control(param, label, "text")
 
 
-def category(source="goods", levels=("l1_cid", "l2_cid", "l3_cid")) -> Control:
-    return Control("category", "Kategori", "category", source=source, levels=list(levels))
+def category(source="goods", levels=("l1_cid", "l2_cid", "l3_cid"), advanced=False) -> Control:
+    return Control("category", "Kategori", "category", source=source, levels=list(levels), advanced=advanced)
 
 
-def dyn(param, label, source, key=None, advanced=True) -> Control:
-    return Control(param, label, "dynselect", source=source, key=key or param, advanced=advanced)
+def dyn(param, label, source, key=None, advanced=True, multi=False, custom=False, when=None) -> Control:
+    return Control(param, label, "dynselect", source=source, key=key or param, advanced=advanced,
+                   multi=multi, custom=custom, when=when or {})
 
 
-def date(params, label="Tanggal", offset=1) -> Control:
-    return Control(params[0], label, "date", params=list(params), offset=offset)
+def date(params, label="Tanggal", offset=1, min="") -> Control:
+    return Control(params[0], label, "date", params=list(params), offset=offset, min=min)
+
+
+def rng(params, label, max_days=0, offset=1, auto=False, min="", advanced=False) -> Control:
+    """Rentang tanggal bebas (dua param). ``auto`` = selalu terisi (bawaan: satu hari, hari ini - offset)."""
+    return Control(params[0], label, "range", params=list(params), offset=offset, max_days=max_days,
+                   default="auto" if auto else None, min=min, advanced=advanced)
+
+
+def dperiod(param, label, presets, default, span=("start_date", "end_date"), max_days=180, also=(),
+            advanced=False, offset=1) -> Control:
+    """Pilihan cepat (7/28/90 hari …) **atau** rentang kustom ``span`` (maks. ``max_days`` hari, s/d hari ini - offset).
+
+    Nilai ``"custom"`` pada ``param`` berarti rentang kustom: param pilihan cepat tidak dikirim.
+    ``also`` = param lain yang diisi nilai pilihan cepat yang sama (mis. ``d_type`` + ``date_type``).
+    """
+    return Control(param, label, "dperiod", [list(o) for o in presets], default, params=list(also),
+                   span=list(span), max_days=max_days, advanced=advanced, offset=offset)
+
+
+def view(param, label, opts, default) -> Control:
+    """Pilihan tampilan (tidak dikirim ke FastMoss) — mis. Unit/Omzet pada grafik yang sama."""
+    return Control(param, label, "view", [list(o) for o in opts], default)
+
+
+def _day(spec: str, today: _dt.date) -> _dt.date | None:
+    if not spec:
+        return None
+    if spec.lstrip("-").isdigit():
+        return today - _dt.timedelta(days=abs(int(spec)))
+    return _dt.date.fromisoformat(spec)
+
+
+def check_range(start: Any, end: Any, max_days: int = 0, offset: int = 1, min: str = "",
+                today: _dt.date | None = None) -> tuple[str, str]:
+    """Validasi rentang tanggal kustom. Mengembalikan (awal, akhir) ISO atau melempar ValueError berbahasa Indonesia."""
+    today = today or _dt.date.today()
+    try:
+        s, e = _dt.date.fromisoformat(str(start)), _dt.date.fromisoformat(str(end))
+    except ValueError:
+        raise ValueError("Format tanggal rentang harus YYYY-MM-DD.") from None
+    if s > e:
+        s, e = e, s
+    latest = today - _dt.timedelta(days=offset)
+    if e > latest:
+        raise ValueError(f"Tanggal akhir paling lambat {latest.isoformat()} (data FastMoss belum tersedia setelahnya).")
+    earliest = _day(min, today)
+    if earliest and s < earliest:
+        raise ValueError(f"Tanggal awal paling cepat {earliest.isoformat()}.")
+    if max_days and (e - s).days + 1 > max_days:
+        raise ValueError(f"Rentang tanggal maksimal {max_days} hari.")
+    return s.isoformat(), e.isoformat()
+
+
+def apply_dperiod(c: Control, query: dict, params: dict) -> None:
+    """Isi ``params`` dari kontrol dperiod: pilihan cepat, atau rentang kustom tervalidasi."""
+    v = query.get(c.param)
+    if v in (None, ""):
+        v = c.default
+    for p in [c.param, *c.params, *c.span]:
+        params.pop(p, None)
+    if str(v) == "custom" and c.span:
+        s, e = check_range(query.get(c.span[0]), query.get(c.span[1]), c.max_days, c.offset, c.min)
+        params[c.span[0]], params[c.span[1]] = s, e
+    elif v not in (None, ""):
+        for p in [c.param, *c.params]:
+            params[p] = v
+
+
+def active(c: Control, values: dict) -> bool:
+    """Kontrol bersyarat (``when``) hanya berlaku bila param pemicunya bernilai yang diminta."""
+    return all(str(values.get(k, "")) in [str(x) for x in (v if isinstance(v, list) else [v])]
+               for k, v in c.when.items())
 
 
 DAYS_7_28 = [[7, "7 hari terakhir"], [28, "28 hari terakhir"]]
@@ -154,8 +233,12 @@ RANK_SORTS = [["1,2", "Terjual (periode)"], ["7,2", "Omzet (periode)"], ["6,2", 
 FOLLOWER_SORTS = [["1,2", "Pengikut baru"], ["2,2", "Total pengikut"]]
 SHOP_RANK_SORTS = [["1,2", "Terjual (periode)"], ["2,2", "Omzet (periode)"], ["3,2", "Pertumbuhan terjual"],
                    ["6,2", "Pertumbuhan omzet"], ["4,2", "Jumlah kreator"]]
-LIVE_SORTS = [["1,2", "Terjual"], ["2,2", "Omzet"], ["4,2", "Total penonton"], ["7,2", "Puncak penonton"],
-              ["6,2", "Nilai per penonton"], ["5,2", "Terbaru"]]
+# Kode urutan LIVE berbeda per endpoint: di /live/V2/search total penonton = 3 (4 = rata-rata penonton),
+# sedangkan di /live/rank total penonton = 4 (3 = rata-rata penonton).
+LIVE_SEARCH_SORTS = [["1,2", "Terjual"], ["2,2", "Omzet"], ["3,2", "Total penonton"], ["5,2", "Waktu mulai"],
+                     ["7,2", "Puncak penonton"], ["4,2", "Rata-rata penonton"], ["6,2", "Nilai per penonton"]]
+LIVE_RANK_SORTS = [["1,2", "Terjual"], ["2,2", "Omzet"], ["4,2", "Total penonton"], ["7,2", "Puncak penonton"],
+                   ["5,2", "Waktu mulai"], ["3,2", "Rata-rata penonton"], ["6,2", "Nilai per penonton"]]
 
 PRODUCT_RANK_COLS = [
     product(), Col("Harga", "price", "real_price"),
@@ -207,25 +290,27 @@ MENUS: list[Menu] = [
          "Cari produk TikTok Shop berdasarkan kata kunci, kategori, dan performa penjualan.",
          "/api/goods/V2/search", "product_list",
          [product(img="img"), Col("Harga", "price", "price"), P("Komisi", "crate"),
-          N("Terjual 7 hari", "day7_sold_count"), M("Omzet 7 hari", "day7_sale_amount"),
-          N("Terjual 28 hari", "day28_sold_count"), M("Omzet 28 hari", "day28_sale_amount"),
+          N("Terjual {last_date_type} hari", "last_sold_count"), M("Omzet {last_date_type} hari", "last_sale_amount"),
           N("Total terjual", "sold_count"), M("Total omzet", "sale_amount"),
           N("Kreator", "relate_author_count"), N("Video", "relate_video_count"), N("LIVE", "relate_live_count"),
           N("Rating", "product_rating"), P("Rasio order kreator", "author_order_rate"),
           G("Kategori", "category_name_l3"), D("Rilis", "launch_time"),
-          Col("Tren 7 hari", "spark", "trend", x="dt", y="inc_sold_count")],
+          Col("Tren {last_date_type} hari", "spark", "trend", x="dt", y="inc_sold_count")],
          base={},
          controls=[words("Kata kunci produk"), select("last_date_type", "Rentang data", DAYS_7_28, 7),
                    category(),
                    dyn("price_amount", "Harga", "goods"), dyn("crate", "Komisi", "goods"),
+                   dyn("day7_sale_amount", "Omzet 7 hari", "goods", when={"last_date_type": 7}),
+                   dyn("day28_sale_amount", "Omzet 28 hari", "goods", when={"last_date_type": 28}),
+                   dyn("day7_sold_count", "Terjual 7 hari", "goods", when={"last_date_type": 7}),
+                   dyn("day28_sold_count", "Terjual 28 hari", "goods", when={"last_date_type": 28}),
                    dyn("sold_count", "Total terjual", "goods"), dyn("sale_amount", "Total omzet", "goods"),
-                   dyn("day7_sold_count", "Terjual 7 hari", "goods"), dyn("day28_sold_count", "Terjual 28 hari", "goods"),
                    dyn("relate_author_count", "Jumlah kreator", "goods", key="relate_author"),
                    dyn("relate_video_count", "Jumlah video", "goods", key="relate_video"),
                    dyn("launch_date", "Waktu rilis", "goods"),
                    dyn("author_order_rate", "Rasio order kreator", "goods")],
-         sorts=[["2,2", "Terjual 7 hari"], ["7,2", "Omzet 7 hari"], ["12,2", "Terjual 28 hari"],
-                ["3,2", "Total terjual"], ["8,2", "Total omzet"], ["4,2", "Jumlah kreator"],
+         sorts=[["2,2", "Terjual {last_date_type} hari"], ["7,2", "Omzet {last_date_type} hari"],
+                ["14,2", "Rasio order dari kreator"], ["3,2", "Total terjual"], ["8,2", "Total omzet"], ["4,2", "Jumlah kreator"],
                 ["6,2", "Jumlah video"], ["5,2", "Jumlah LIVE"], ["9,2", "Terbaru"]],
          referer="/id/e-commerce/search"),
     Menu("product-sales", "Produk", "Produk Terlaris",
@@ -242,7 +327,7 @@ MENUS: list[Menu] = [
           N("LIVE", "live_count"), G("Kategori", "category_name"), D("Rilis", "launch_time")],
          base={"rank_type": 11},
          sorts=[["1,2", "Terjual"], ["2,2", "Omzet"], ["3,2", "Total terjual"], ["4,2", "Total omzet"]],
-         controls=[date(["start_date", "end_date"], "Tanggal data", offset=3), category()],
+         controls=[rng(["start_date", "end_date"], "Waktu peluncuran", max_days=30, offset=3, auto=True), category()],
          referer="/id/e-commerce/newProducts"),
     Menu("product-hot", "Produk", "Produk Populer",
          "Produk yang paling banyak dipromosikan kreator.",
@@ -268,23 +353,28 @@ MENUS: list[Menu] = [
          "Cari kreator/affiliate berdasarkan kategori, pengikut, dan penjualan.",
          "/api/author/search", "author_list",
          [creator(), G("Kategori", "category"), N("Pengikut", "follower_count"),
-          N("Pengikut baru (28h)", "follower_28d_count"), N("Video (28h)", "aweme_28d_count"),
-          N("Rata-rata tayangan", "avg_play_count"), P("Interaksi", "interact_rate"),
-          M("Omzet (28h)", "d28_sale_amount"), N("Terjual (28h)", "sale_28d_count"),
+          N("Pengikut baru ({last_date_type}h)", "last_follower_count"),
+          N("Rata-rata tayangan ({last_date_type}h)", "last_avg_play_count"), P("Interaksi", "interaction_v1_rate"),
+          N("Terjual ({last_date_type}h)", "last_sold_count"), M("Omzet ({last_date_type}h)", "last_sale_amount"),
+          Col("Tren penjualan", "spark", "sale_count_list.list", x="dt", y="value"),
           M("Omzet video (28h)", "video_28d_sale_amount"), M("Omzet LIVE (28h)", "live_28d_sale_amount"),
-          G("Kategori jualan", "sale_category_l3_name")],
+          N("Video (28h)", "aweme_28d_count"), G("Kategori jualan", "sale_category_l3_name")],
          base={"shop_window": 1, "is_shop": 0, "df": _DF},
          controls=[words("Nama / username kreator"), select("last_date_type", "Rentang data", DAYS_7_28, 28),
                    dyn("cid", "Kategori kreator", "author", key="author_category", advanced=False),
                    select("shop_window", "Etalase", [[1, "Punya etalase"], [0, "Semua"]], 1, advanced=True),
                    dyn("follower", "Pengikut", "author", key="follower_count"),
                    dyn("follower_28d_count", "Pengikut baru 28h", "author"),
-                   dyn("d28_sale_amount", "Omzet 28h", "author"), dyn("d28_sold_count", "Terjual 28h", "author"),
+                   dyn("d7_sale_amount", "Omzet 7 hari", "author", when={"last_date_type": 7}),
+                   dyn("d28_sale_amount", "Omzet 28 hari", "author", when={"last_date_type": 28}),
+                   dyn("d7_sold_count", "Terjual 7 hari", "author", when={"last_date_type": 7}),
+                   dyn("d28_sold_count", "Terjual 28 hari", "author", when={"last_date_type": 28}),
                    dyn("interaction_v1_rate", "Interaksi", "author"),
                    dyn("avg_28d_play_count", "Rata-rata tayangan 28h", "author"),
                    dyn("contact", "Kontak tersedia", "author")],
-         sorts=[["12,2", "Terjual 28 hari"], ["7,2", "Omzet 28 hari"], ["1,2", "Pengikut"],
-                ["2,2", "Pengikut baru 28 hari"], ["3,2", "Jumlah video"], ["6,2", "Rata-rata tayangan 28 hari"],
+         sorts=[["12,2", "Terjual {last_date_type} hari"], ["7,2", "Omzet {last_date_type} hari"],
+                ["1,2", "Pengikut"], ["2,2", "Pengikut baru {last_date_type} hari"], ["3,2", "Jumlah video"],
+                ["6,2", "Rata-rata tayangan {last_date_type} hari"],
                 ["8,2", "Interaksi"], ["10,2", "Video produk 28 hari"], ["11,2", "LIVE produk 28 hari"]],
          referer="/id/influencer/search"),
     Menu("creator-fans", "Kreator", "Pertumbuhan Pengikut",
@@ -325,7 +415,8 @@ MENUS: list[Menu] = [
           P("Interaksi", "interact_rate"), P("Laju pengikut", "follower_rate"),
           D("Video terakhir", "latest_video_create_date")],
          base={"is_ecommerce": 1},
-         controls=[period(), dyn("cid", "Kategori kreator", "author", key="author_category", advanced=False)],
+         controls=[period(options=[[1, "28 hari terakhir"], [2, "Mingguan"], [3, "Bulanan"]], picker=[2, 3]),
+                   dyn("cid", "Kategori kreator", "author", key="author_category", advanced=False)],
          referer="/id/influencer/tiktok/potentialTop"),
 
     # ============================== TOKO ==============================
@@ -333,16 +424,26 @@ MENUS: list[Menu] = [
          "Cari toko TikTok Shop berdasarkan nama, kategori, dan performa.",
          "/api/shop/v3/search", "list",
          [shop(img="shop_info.avatar", title="shop_info.name", sub="shop_info.category_name"),
+          N("Terjual {last_date_type} hari", "last_sold_count"), M("Omzet {last_date_type} hari", "last_sale_amount"),
+          Col("Tren {last_date_type} hari", "spark", "trend", x="dt", y="inc_sold_count"),
+          N("Produk laku 7 hari", "day7_product_count"), P("Rasio produk baru", "new_product_rate"),
           N("Total terjual", "sold_count"), M("Total omzet", "sale_amount"),
-          N("Terjual (rentang)", "day7_sold_count"), M("Omzet (rentang)", "day7_sale_amount"),
-          N("Produk aktif", "on_sell_product_count"), N("Kreator penjual", "sales_author_count"),
-          N("Rating toko", "shop_rating"), P("Rasio produk baru", "new_product_rate"),
-          Col("Tren 7 hari", "spark", "trend", x="dt", y="inc_sold_count")],
+          N("Produk dijual", "on_sell_product_count"), N("Kreator penjual", "sales_author_count"),
+          N("Rating toko", "shop_rating")],
          base={},
-         sorts=[["1,2", "Terjual (rentang)"], ["2,2", "Omzet (rentang)"], ["5,2", "Total terjual"],
+         sorts=[["1,2", "Terjual {last_date_type} hari"], ["2,2", "Omzet {last_date_type} hari"],
+                ["4,2", "Rasio produk baru"], ["5,2", "Total terjual"],
                 ["6,2", "Total omzet"], ["3,2", "Jumlah produk"], ["9,2", "Kreator penjual"]],
          controls=[words("Nama toko"), select("last_date_type", "Rentang data", DAYS_7_28, 7),
                    category("shop"),
+                   dyn("day7_sale_amount_range", "Omzet 7 hari", "shop", key="day7_sale_amount",
+                       when={"last_date_type": 7}),
+                   dyn("day28_sale_amount_range", "Omzet 28 hari", "shop", key="day28_sale_amount",
+                       when={"last_date_type": 28}),
+                   dyn("day7_sold_count_range", "Terjual 7 hari", "shop", key="day7_sold_count",
+                       when={"last_date_type": 7}),
+                   dyn("day28_sold_count_range", "Terjual 28 hari", "shop", key="day28_sold_count",
+                       when={"last_date_type": 28}),
                    dyn("sold_count_range", "Total terjual", "shop", key="sold_count"),
                    dyn("sale_amount_range", "Total omzet", "shop", key="sale_amount"),
                    dyn("shop_rating_range", "Rating toko", "shop", key="shop_rating"),
@@ -365,8 +466,9 @@ MENUS: list[Menu] = [
     Menu("live-search", "LIVE", "Cari Siaran LIVE",
          "Cari siaran LIVE jualan berdasarkan kata kunci dan performa.",
          "/api/live/V2/search", "live_list", LIVE_COLS,
-         base={}, sorts=LIVE_SORTS,
-         controls=[words("Judul / kreator"), select("date_type", "Rentang waktu", DAYS_7_28_90, 7),
+         base={}, sorts=LIVE_SEARCH_SORTS,
+         controls=[words("Judul / kreator"),
+                   dperiod("date_type", "Rentang waktu", DAYS_7_28_90, 7, max_days=0, offset=0),
                    dyn("cid", "Kategori kreator", "live", key="author_category", advanced=False),
                    dyn("follower_count", "Pengikut", "live"), dyn("total_user_count", "Penonton", "live"),
                    dyn("sold_count", "Terjual", "live")],
@@ -374,7 +476,7 @@ MENUS: list[Menu] = [
     Menu("live-rank", "LIVE", "LIVE Terlaris",
          "Siaran LIVE dengan omzet tertinggi (pantauan terbaru).",
          "/api/live/rank", "live_list", LIVE_COLS,
-         base={}, sorts=LIVE_SORTS,
+         base={}, sorts=LIVE_RANK_SORTS,
          controls=[dyn("cid", "Kategori kreator", "live", key="author_category", advanced=False)],
          referer="/id/live/tiktok"),
     Menu("live-products", "LIVE", "Produk Laris di LIVE",
@@ -383,7 +485,7 @@ MENUS: list[Menu] = [
          [product(sub="shop.name"), Col("Harga", "price", "real_price"),
           N("Terjual via LIVE", "live_sold_count"), M("Omzet LIVE", "live_sale_amount"),
           N("Jumlah LIVE", "live_count"), G("Kategori", "category_name_l3"), D("Tanggal", "dt")],
-         base={"order": "1,2"}, controls=[period(weekly=False, monthly=False)],
+         base={"order": "1,2"}, controls=[period()],
          referer="/id/live/hotProduct"),
     Menu("live-creators", "LIVE", "Kreator LIVE Terlaris",
          "Kreator dengan omzet LIVE shopping tertinggi.",
@@ -392,7 +494,7 @@ MENUS: list[Menu] = [
           M("Omzet LIVE", "live_amount"), N("Terjual via LIVE", "live_sold_count"),
           N("Jumlah LIVE", "live_count"), N("Produk", "product_count"),
           M("GPM tertinggi", "live_gpm_max"), D("Tanggal", "dt")],
-         base={}, controls=[period(weekly=False, monthly=False),
+         base={}, controls=[period(),
                             dyn("cid", "Kategori kreator", "author", key="author_category", advanced=False)],
          referer="/id/live/liveCommerce"),
 
@@ -439,7 +541,7 @@ MENUS: list[Menu] = [
           N("Terjual", "product_info.sold_count"), M("Omzet", "product_info.sale_amount"),
           N("Tayangan", "play_count"), N("Suka", "digg_count"), P("Interaksi", "interaction_rate"),
           N("ROAS", "roas"), TS("Diunggah", "create_time")],
-         base={"rank_type": 2}, controls=[date(["date_value"], "Tanggal data")], pagesize=12,
+         base={"rank_type": 2}, controls=[date(["date_value"], "Tanggal peringkat", min="-15")], pagesize=12,
          referer="/id/media-source/top-ai-videos"),
 
     # ============================== IKLAN ==============================
@@ -451,7 +553,10 @@ MENUS: list[Menu] = [
           N("Hari tayang", "put_days"), M("Estimasi biaya", "estimate_cost"), T("ROAS", "roas"),
           D("Pertama tayang", "first_put_date"), D("Terakhir tayang", "last_put_date")],
          base={"da_type": 1},
-         controls=[words("Kata kunci iklan"), dyn("play_count", "Tayangan", "ads"), dyn("digg_count", "Suka", "ads"),
+         controls=[words("Kata kunci iklan"), dperiod("date_type", "Waktu rilis", [["", "Semua"], [1, "7 hari"], [3, "28 hari"], [4, "90 hari"], [5, "180 hari"]],
+                           "", span=("video_create_start_date", "video_create_end_date"), max_days=0),
+                   rng(["last_start_date", "last_end_date"], "Periode kampanye"),
+                   dyn("play_count", "Tayangan", "ads"), dyn("digg_count", "Suka", "ads"),
                    dyn("estimate_cost", "Estimasi biaya", "ads"), dyn("hotness", "Popularitas", "ads"),
                    dyn("desc_language", "Bahasa", "ads", key="language")],
          pagesize=12, referer="/id/creativecenter/search"),
@@ -462,7 +567,9 @@ MENUS: list[Menu] = [
           N("Suka", "digg_count"), N("Komentar", "comment_count"), N("Dibagikan", "share_count"),
           N("Hari tayang", "put_days"), M("Estimasi biaya", "estimate_cost"), T("ROAS", "roas"),
           D("Terakhir tayang", "last_put_date")],
-         base={"da_type": 1, "scene": 3}, controls=[words("Kata kunci")], pagesize=12,
+         base={"da_type": 1, "scene": 3}, controls=[words("Kata kunci"), dperiod("date_type", "Waktu rilis", [["", "Semua"], [1, "7 hari"], [3, "28 hari"], [4, "90 hari"], [5, "180 hari"]],
+                           "", span=("video_create_start_date", "video_create_end_date"), max_days=0),
+                   rng(["last_start_date", "last_end_date"], "Periode kampanye")], pagesize=12,
          referer="/id/creativecenter/seed"),
     Menu("ads-advertiser", "Iklan", "Pengiklan Teratas",
          "Toko/pengiklan dengan belanja iklan dan penjualan iklan terbesar.",
@@ -472,7 +579,10 @@ MENUS: list[Menu] = [
           N("Video iklan", "video_count"), N("Tayangan", "play_count"), N("Produk", "product_count"),
           N("Kreator", "author_count"), P("Interaksi", "interaction_rate"),
           D("Mulai beriklan", "first_put_day"), D("Terakhir beriklan", "last_put_day")],
-         base={}, controls=[words("Nama pengiklan")],
+         base={}, controls=[words("Nama pengiklan"),
+                            dperiod("date_type", "Waktu ditemukan", [["", "Semua"], [1, "7 hari"], [3, "28 hari"],
+                                                                     [4, "90 hari"]], "",
+                                    span=("last_start_date", "last_end_date"), max_days=0)],
          referer="/id/creativecenter/advertiser"),
     Menu("ads-hashtag", "Iklan", "Wawasan Hashtag",
          "Tren traffic hashtag/topik populer untuk ide konten iklan.",
@@ -505,7 +615,8 @@ MENUS: list[Menu] = [
           N("Kreator", "author_count"), N("Kreator berjualan", "author_sale_count"),
           N("Produk", "product_count"), N("Produk terjual", "product_sale_count"),
           P("Komisi", "commission_rate"), G("Kategori laris", "hot_category")],
-         base={"order": "1,2", "date_type": 2}, controls=[],
+         base={"order": "1,2"},
+         controls=[period(options=[[2, "Mingguan"], [3, "Bulanan"]], default=2, min="2025-01-01")],
          referer="/id/agency/mcn/search"),
     Menu("agency-search", "Agensi", "Cari Agensi",
          "Cari agensi/partner kreator berdasarkan nama dan performa 7 hari.",
@@ -528,17 +639,22 @@ def control_params(menu: Menu) -> set[str]:
     for c in menu.controls:
         if c.kind == "category":
             allowed |= set(c.levels)
-        elif c.kind == "date":
+        elif c.kind in ("date", "range"):
             allowed |= set(c.params)
         elif c.kind == "period":
             allowed |= {"date_type", "date_value"}
-        else:
+        elif c.kind == "dperiod":
+            allowed |= {c.param, *c.params, *c.span}
+        elif c.kind != "view":
             allowed.add(c.param)
     return allowed
 
 
 def build_params(menu: Menu, query: dict) -> dict:
-    """Gabungkan parameter bawaan menu + pilihan pengguna (hanya kunci yang dikenal)."""
+    """Gabungkan parameter bawaan menu + pilihan pengguna (hanya kunci yang dikenal).
+
+    Melempar ValueError (pesan Indonesia) bila rentang tanggal kustom tidak valid.
+    """
     allowed = control_params(menu)
     params: dict = dict(menu.base)
     params.setdefault("pagesize", menu.pagesize)
@@ -550,13 +666,25 @@ def build_params(menu: Menu, query: dict) -> dict:
             params[k] = v
     if menu.sorts and "order" not in query:
         params.setdefault("order", menu.sorts[0][0])
+    today = _dt.date.today()
     for c in menu.controls:
-        if c.kind == "period" and not params.get("date_value"):
+        if c.when and not active(c, params):
+            for p in ([c.param] if c.kind != "category" else c.levels):
+                params.pop(p, None)
+        elif c.kind == "period" and not params.get("date_value"):
             params["date_value"] = default_period_value(int(params.get("date_type") or 1))
         elif c.kind == "date":
-            day = params.get(c.params[0]) or (_dt.date.today() - _dt.timedelta(days=c.offset)).isoformat()
+            day = params.get(c.params[0]) or (today - _dt.timedelta(days=c.offset)).isoformat()
             for p in c.params:
                 params[p] = day
+        elif c.kind == "range":
+            s, e = params.get(c.params[0]), params.get(c.params[1])
+            if s or e:
+                params[c.params[0]], params[c.params[1]] = check_range(s or e, e or s, c.max_days, c.offset, c.min)
+            elif c.default == "auto":
+                params[c.params[0]] = params[c.params[1]] = (today - _dt.timedelta(days=c.offset)).isoformat()
+        elif c.kind == "dperiod":
+            apply_dperiod(c, query, params)
     params.setdefault("page", 1)
     return params
 
