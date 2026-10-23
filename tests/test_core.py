@@ -70,7 +70,7 @@ def test_catalog_integrity():
         for _, secs in d.tabs:
             for k in secs:
                 assert k in d.by_key, (d.kind, k)
-    assert {p["key"] for p in MARKET_PAGES} == {"pulse", "category", "strategy"}
+    assert {p["key"] for p in MARKET_PAGES} == {"pulse", "category", "strategy", "category-daily"}
 
 
 def test_export_writers():
