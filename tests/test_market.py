@@ -32,3 +32,7 @@ def test_strategy_never_sends_date_type():
 def test_old_page_keeps_daily_default():
     assert mp("category-daily") == {"region": "ID"}
     assert mp("category-daily", date_type="2")["date_type"] == "2"
+
+
+def test_insights_params():
+    assert mp("insights", l1_cid="14", l3_cid="601480", pcid="9") == {"region": "ID", "l1_cid": "14", "l3_cid": "601480"}

@@ -168,16 +168,21 @@ class FastMossClient:
         return res
 
     async def post(self, path: str, params: dict | None = None, body: dict | None = None, *,
-                   region: str | None = None, referer: str | None = None) -> FMResult:
-        """POST JSON bertanda tangan (dipakai Monitor). Tidak pernah di-cache."""
+                   region: str | None = None, referer: str | None = None, retries: int | None = None) -> FMResult:
+        """POST JSON bertanda tangan (dipakai Monitor). Tidak pernah di-cache.
+
+        ``retries=1`` untuk aksi yang memakai kuota (mis. tambah monitor): jangan diulang otomatis,
+        supaya kuota tidak terpakai dua kali bila respons pertama hilang di jalan.
+        """
         region = region or settings.DEFAULT_REGION
-        return await self._request(path, clean_params(params), region, referer, body=body or {})
+        return await self._request(path, clean_params(params), region, referer, body=body or {}, retries=retries)
 
     async def _request(self, path: str, params: dict, region: str, referer: str | None,
-                       body: dict | None = None) -> FMResult:
+                       body: dict | None = None, retries: int | None = None) -> FMResult:
         http = await self._client()
         last_err = ""
-        for attempt in range(1, settings.RETRIES + 1):
+        tries = retries or settings.RETRIES
+        for attempt in range(1, tries + 1):
             async with self._lock:  # satu akun dipakai bersama: request diantrikan + diberi jeda
                 wait = settings.MIN_INTERVAL - (time.monotonic() - self._last_call)
                 if wait > 0:
@@ -209,9 +214,10 @@ class FastMossClient:
                         res.data = None  # data contoh palsu — jangan pernah ditampilkan
                     log.info("FM %s %s -> %s %s", path, params.get("page", ""), res.status, res.code)
                     return res
-            log.warning("FM %s gagal (percobaan %d/%d): %s", path, attempt, settings.RETRIES, last_err)
-            await asyncio.sleep(1.5 * attempt)
-        return FMResult(ERROR, None, f"Gagal terhubung ke FastMoss setelah {settings.RETRIES}x percobaan ({last_err}).")
+            log.warning("FM %s gagal (percobaan %d/%d): %s", path, attempt, tries, last_err)
+            if attempt < tries:
+                await asyncio.sleep(1.5 * attempt)
+        return FMResult(ERROR, None, f"Gagal terhubung ke FastMoss setelah {tries}x percobaan ({last_err}).")
 
     # --- akun -------------------------------------------------------------------
     async def account(self, force: bool = False) -> dict:

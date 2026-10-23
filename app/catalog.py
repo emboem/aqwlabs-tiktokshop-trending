@@ -222,6 +222,7 @@ OPTION_SOURCES = {
     "ads": "/api/da/V4/filterInfo",
     "country": "/api/shop/countryList",
     "market": "/api/analysis/GoodCategory/filterInfo",
+    "insights": "/api/da/V4/insightsFilter",
 }
 
 # nilai `df` yang dikirim halaman pencarian kreator (btoa("fs_" + origin + "_ps"))

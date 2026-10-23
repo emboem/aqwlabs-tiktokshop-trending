@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
-from .. import auth, settings
+from .. import auth, monitor, settings
 from ..accounts import current_id, registry
 from ..catalog import GROUP_ORDER, MENU_BY_KEY, MENUS
 from ..details import DETAILS, fetch_option, fetch_section
@@ -27,6 +27,14 @@ class CookieBody(BaseModel):
 
 class NewAccountBody(BaseModel):
     label: str = ""
+
+
+class MonitorBody(BaseModel):
+    video_id: str
+    hours: int = 24
+    notify_digg_count: str = ""
+    notify_play_count: str = ""
+    confirm: bool = False
 
 
 def _region(request: Request) -> str:
@@ -107,6 +115,27 @@ async def detail(kind: str, item_id: str, section: str, request: Request, _: str
 @router.get("/market/{page}/{section}")
 async def market(page: str, section: str, request: Request, _: str = Depends(auth.require_team)):
     return await fetch_market(page, section, _query(request), _region(request))
+
+
+# --- monitor (milik akun FastMoss; tambah = memakai kuota) ---------------------------
+@router.get("/monitor/quota")
+async def monitor_quota(request: Request, _: str = Depends(auth.require_team)):
+    return await monitor.quota(_region(request))
+
+
+@router.get("/monitor/list")
+async def monitor_list(request: Request, _: str = Depends(auth.require_team)):
+    return await monitor.history(_query(request), _region(request))
+
+
+@router.get("/monitor/search")
+async def monitor_search(request: Request, _: str = Depends(auth.require_team)):
+    return await monitor.search(request.query_params.get("content", ""), _region(request))
+
+
+@router.post("/monitor/add")
+async def monitor_add(body: MonitorBody, request: Request, _: str = Depends(auth.require_admin)):
+    return await monitor.add(body.model_dump(), _region(request))
 
 
 # --- akun & cookie ------------------------------------------------------------------

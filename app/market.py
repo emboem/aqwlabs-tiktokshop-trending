@@ -14,8 +14,8 @@ Paket gratis FastMoss hanya membuka data **harian** untuk **seluruh kategori**; 
 from __future__ import annotations
 
 from . import settings
-from .catalog import Col, M, N, T, Control, default_period_value, period, product, select, shop
-from .details import Section, run_section
+from .catalog import TS, Col, M, N, T, Control, default_period_value, period, product, select, shop
+from .details import Section, ad, run_section
 
 MARKET_MIN = "2024-12-01"            # kalender Tren Pasar FastMoss mulai Desember 2024
 PERIOD_PULSE = period(min=MARKET_MIN)
@@ -214,10 +214,29 @@ PAGES = [
                  wide=True),
      ]},
 ]
+PAGES.append(
+    {"key": "insights", "title": "Wawasan Tren", "referer": "/id/creativecenter/trend-insights", "rule": "plain",
+     "group": "Iklan",
+     "desc": "Iklan & video teratas per kategori produk (tingkat 3) atau kata kunci — seperti Wawasan Tren FastMoss.",
+     "controls": [Control("category", "Kategori", "category", source="insights", key="product_category",
+                          levels=["l1_cid", "l2_cid", "l3_cid"]),
+                  Control("keyword", "Kata kunci", "text")],
+     "sections": [
+         Section("topAds", "Video iklan teratas", "/api/da/V4/topAds", "table", root="list", paged=True, wide=True,
+                 note="Pilih kategori sampai tingkat 3 atau isi kata kunci. FastMoss belum menyediakan grafik tren, "
+                      "kata kunci populer, dan audiens Wawasan Tren untuk Indonesia (datanya kosong), jadi hanya "
+                      "daftar iklan teratas yang ditampilkan.",
+                 fields=[ad(title="video_desc", sub="product_info.title"), TS("Diunggah", "create_time"),
+                         N("Tayangan", "play_count"), N("Suka", "digg_count"), T("Interaksi", "interaction_rate_show"),
+                         N("ROAS", "roas"), product(img="product_info.cover", title="product_info.title",
+                                                    pid="product_info.product_id", sub="product_info.price"),
+                         N("Terjual (produk)", "product_info.sold_count"),
+                         M("Omzet (produk)", "product_info.sale_amount")]),
+     ]})
 PAGE_BY_KEY = {p["key"]: p for p in PAGES}
 
 MARKET_PAGES = [
-    {"key": p["key"], "title": p["title"], "desc": p["desc"], "group": "Tren Pasar",
+    {"key": p["key"], "title": p["title"], "desc": p["desc"], "group": p.get("group", "Tren Pasar"),
      "controls": [c.__dict__ for c in p["controls"]],
      "sections": [s.public() for s in p["sections"]]}
     for p in PAGES
@@ -230,9 +249,15 @@ def market_params(pg: dict, query: dict, region: str) -> dict:
     pcid = query.get("pcid")
     if pcid not in (None, ""):
         params["pcid"] = pcid
-    dt = str(query.get("date_type") or next(c.default for c in pg["controls"] if c.param == "date_type"))
+    dt = str(query.get("date_type") or next((c.default for c in pg["controls"] if c.param == "date_type"), ""))
     dv = query.get("date_value") or ""
     rule = pg.get("rule")
+    if rule == "plain":                       # Wawasan Tren: kategori bertingkat / kata kunci apa adanya
+        params.pop("pcid", None)
+        for k in ("l1_cid", "l2_cid", "l3_cid", "keyword"):
+            if query.get(k) not in (None, ""):
+                params[k] = query[k]
+        return params
     if rule == "old":
         if dt != "1":
             params["date_type"] = dt          # harian = bawaan FastMoss
@@ -261,6 +286,8 @@ async def fetch_market(page: str, section: str, query: dict, region: str) -> dic
     params = market_params(pg, query, region)
     if sec.note == NOTE_PCID and "pcid" not in params:
         return {"status": "empty", "message": NOTE_PCID, "limit": 0}
+    if pg.get("rule") == "plain" and not (params.get("keyword") or params.get("l3_cid")):
+        return {"status": "empty", "message": "Pilih kategori sampai tingkat 3 atau isi kata kunci dulu.", "limit": 0}
     res = await run_section(sec, params, query, region, settings.BASE_URL + pg["referer"])
     res["params"] = {k: v for k, v in params.items() if k in ("date_type", "date_value", "pcid")}
     return res
